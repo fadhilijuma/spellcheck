@@ -1,0 +1,23 @@
+# Build output
+/spellcheck
+*.test
+*.out
+
+# Local env
+.env
+.envrc
+
+# Tool-specific agent config stays local; AGENTS.md and .agents/ are the shared harness.
+CLAUDE.md
+.claude/
+.cursor/
+.codex/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
