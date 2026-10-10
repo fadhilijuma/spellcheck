@@ -1,0 +1,8 @@
+.git
+.agents
+.github
+.idea
+/spellcheck
+*.md
+!README.md
+web

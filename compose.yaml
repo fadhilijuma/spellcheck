@@ -1,0 +1,17 @@
+# Run the app: make up (podman-compose; or COMPOSE="docker compose")
+# Vue editor + API proxy: http://localhost:8081 (override with WEB_PORT).
+
+services:
+  app:
+    build: .
+    image: localhost/spellcheck
+    # The API is private; the editor reaches it through nginx.
+    restart: unless-stopped
+  web:
+    build: ./web
+    image: localhost/spellcheck-editor
+    depends_on:
+      - app
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8081}:80"
+    restart: unless-stopped
