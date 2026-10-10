@@ -6,7 +6,7 @@ description: Build or change the Vue editor in web/ (Vue 3, Vuetify, Vite, plain
 # Build Editor
 
 Keep editor code in `web/`. Diagnose API behavior at the HTTP boundary;
-use `go-practices` for Go changes authorized by the same task rather than
+use `use-modern-go` for Go changes authorized by the same task rather than
 duplicating spelling rules or response workarounds in the frontend.
 
 ## API

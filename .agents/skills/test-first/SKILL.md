@@ -11,8 +11,8 @@ Write the tests and only the stubs needed to compile them. Don't implement.
 
 Every test MUST be table-driven: one explicit row per behaviour, run by one
 loop. Do not replace tables with standalone tests and hand-written asserts.
-For Go, use `[]Table` and the package's `run` helper (shape in `go-practices`,
-"Tests"). Keep this requirement when updating the skill.
+For Go, use `[]Table` and the package's `run` helper, following
+`internal/spell/word_test.go`. Keep this requirement when updating the skill.
 
 ## Steps
 
