@@ -2,6 +2,134 @@ import { expect, test } from '@playwright/test';
 
 const cases = [
   {
+    name: 'configuration failure preserves typing and retries against the real API',
+    async run(page, editor) {
+      await page.route('**/v1/config', route => route.abort());
+      await page.reload();
+      await editor.fill('speling');
+      await expect(page.getByRole('status')).toHaveText('Check unavailable');
+      await expect(page.getByRole('combobox', { name: 'English convention' })).toBeDisabled();
+      await page.unroute('**/v1/config');
+      await page.getByRole('button', { name: 'Retry check' }).click();
+      await expect(page.locator('.spelling-mark')).toHaveText(['speling']);
+      await expect(editor).toHaveValue('speling');
+    },
+  },
+  {
+    name: 'configured English default initializes the editor without saving a user preference',
+    async run(page, editor) {
+      const expected = process.env.SPELL_DEFAULT_LANGUAGE || 'en-US';
+      await expect(page.getByRole('combobox', { name: 'English convention' })).toHaveValue(expected);
+      expect(await page.evaluate(() => localStorage.getItem('spellcheck.language'))).toBeNull();
+      await editor.fill('color colour');
+      await expect(page.locator('.spelling-mark')).toHaveText([expected === 'en-GB' ? 'color' : 'colour']);
+    },
+  },
+  {
+    name: 'an explicit saved US preference overrides the configured English default',
+    async run(page, editor) {
+      const selector = page.getByRole('combobox', { name: 'English convention' });
+      await expect(selector).toBeEnabled();
+      await selector.selectOption('en-US');
+      await page.reload();
+      await expect(selector).toHaveValue('en-US');
+      await editor.fill('color colour');
+      await expect(page.locator('.spelling-mark')).toHaveText(['colour']);
+    },
+  },
+  {
+    name: 'hover accepts a personal word in both languages and removal restores warnings',
+    async run(page, editor) {
+      await editor.fill('Fadhili FADHILI speling');
+      await expect(page.locator('.spelling-mark')).toHaveText(['Fadhili', 'FADHILI', 'speling']);
+      const mark = await page.locator('.spelling-mark').first().boundingBox();
+      await page.mouse.move(mark.x + mark.width / 2, mark.y + mark.height / 2);
+      await page.getByRole('dialog', { name: 'Corrections for Fadhili' })
+        .getByRole('button', { name: 'Add to dictionary', exact: true }).click();
+      await expect(editor).toHaveValue('Fadhili FADHILI speling');
+      await expect(editor).toBeFocused();
+      await expect(editor).toHaveJSProperty('selectionStart', 23);
+      await expect(page.locator('.spelling-mark')).toHaveText(['speling']);
+      await page.getByRole('combobox', { name: 'English convention' }).selectOption('en-GB');
+      await expect(page.locator('.spelling-mark')).toHaveText(['speling']);
+      await page.reload();
+      await expect(editor).toHaveValue('');
+      await editor.fill('Fadhili speling');
+      await expect(page.locator('.spelling-mark')).toHaveText(['speling']);
+      await page.getByRole('button', { name: 'Dictionary', exact: true }).click();
+      await page.getByRole('button', { name: 'Remove fadhili', exact: true }).click();
+      await expect(page.locator('.spelling-mark')).toHaveText(['Fadhili', 'speling']);
+      await page.reload();
+      await editor.fill('Fadhili');
+      await expect(page.locator('.spelling-mark')).toHaveText(['Fadhili']);
+    },
+  },
+  {
+    name: 'keyboard adds a word without changing the selection',
+    async run(page, editor) {
+      await editor.fill('Fadhili writes');
+      await expect(page.locator('.spelling-mark')).toHaveText(['Fadhili']);
+      await editor.evaluate(element => element.setSelectionRange(2, 4));
+      await editor.press('Alt+ArrowDown');
+      await page.getByRole('dialog').getByRole('button', { name: 'Add to dictionary' }).click();
+      await expect(editor).toBeFocused();
+      await expect(editor).toHaveJSProperty('selectionStart', 2);
+      await expect(editor).toHaveJSProperty('selectionEnd', 4);
+      await expect(page.getByRole('status')).toHaveText('All clear');
+    },
+  },
+  {
+    name: 'blocked browser storage keeps personal words usable for the current session',
+    async run(page, editor) {
+      await page.addInitScript(() => {
+        Object.defineProperty(window, 'localStorage', { get() { throw new Error('blocked'); } });
+      });
+      await page.reload();
+      await editor.fill('Fadhili');
+      await expect(page.locator('.spelling-mark')).toHaveText(['Fadhili']);
+      await editor.press('Alt+ArrowDown');
+      await page.getByRole('dialog').getByRole('button', { name: 'Add to dictionary' }).click();
+      await expect(page.getByRole('status')).toHaveText('All clear');
+      await page.getByRole('button', { name: 'Dictionary', exact: true }).click();
+      await expect(page.getByText('Browser storage unavailable. Words are kept for this session only.')).toBeVisible();
+      await page.getByRole('button', { name: 'Remove fadhili', exact: true }).click();
+      await expect(page.locator('.spelling-mark')).toHaveText(['Fadhili']);
+    },
+  },
+  {
+    name: 'switching English convention rechecks the draft and closes stale corrections',
+    async run(page, editor) {
+      const language = page.getByRole('combobox', { name: 'English convention' });
+      await expect(language).toHaveValue('en-US');
+      await editor.fill('color colour JWT DNS TEH');
+      await expect(page.locator('.spelling-mark')).toHaveText(['colour', 'TEH']);
+      await language.selectOption('en-GB');
+      await expect(editor).toHaveValue('color colour JWT DNS TEH');
+      await expect(page.locator('.spelling-mark')).toHaveText(['color', 'TEH']);
+      await editor.focus();
+      await editor.evaluate(element => element.setSelectionRange(3, 3));
+      await editor.press('Alt+ArrowDown');
+      await expect(page.getByRole('dialog').getByRole('button', { name: 'colour', exact: true })).toBeVisible();
+      await language.selectOption('en-US');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.locator('.spelling-mark')).toHaveText(['colour', 'TEH']);
+    },
+  },
+  {
+    name: 'the language preference survives reload without storing the draft',
+    async run(page, editor) {
+      const language = page.getByRole('combobox', { name: 'English convention' });
+      await language.selectOption('en-GB');
+      await editor.fill('colour center');
+      await expect(page.locator('.spelling-mark')).toHaveText(['center']);
+      await page.reload();
+      await expect(language).toHaveValue('en-GB');
+      await expect(editor).toHaveValue('');
+      await editor.fill('colour center');
+      await expect(page.locator('.spelling-mark')).toHaveText(['center']);
+    },
+  },
+  {
     name: 'typing automatically checks uppercase typos',
     async run(page, editor) {
       await editor.pressSequentially('TEH RECIEVE SPELING');

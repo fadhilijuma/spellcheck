@@ -2,7 +2,16 @@ import { tokenize } from './tokenize.js';
 
 const api = (import.meta.env?.VITE_SERVICE_API || '/v1').replace(/\/$/, '');
 
-export async function checkDocument(text, { signal, fetcher = fetch } = {}) {
+export async function getDefaultLanguage({ signal, fetcher = fetch } = {}) {
+  const response = await fetcher(`${api}/config`, { signal });
+  if (!response.ok) throw new Error('Spellcheck unavailable');
+  const data = await response.json();
+  signal?.throwIfAborted();
+  if (!['en-US', 'en-GB'].includes(data?.defaultLanguage)) throw new Error('Invalid configuration response');
+  return data.defaultLanguage;
+}
+
+export async function checkDocument(text, { signal, fetcher = fetch, language } = {}) {
   const words = [...new Set(tokenize(text).map(token => token.word))];
   const skipped = new Set(words.filter(word => [...word].length > 64));
   const allowed = words.filter(word => !skipped.has(word));
@@ -14,7 +23,7 @@ export async function checkDocument(text, { signal, fetcher = fetch } = {}) {
     const response = await fetcher(`${api}/check`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ words: batch }),
+      body: JSON.stringify({ words: batch, language }),
       signal,
     });
     if (!response.ok) throw new Error('Spellcheck unavailable');

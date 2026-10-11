@@ -76,7 +76,7 @@ test('failed checks retry on the next edit', async t => {
 test('composition waits and empty input clears immediately', async t => {
   let calls = 0;
   const { states, session } = setup(t, async () => { calls++; return Response.json({ misspelled: [] }); });
-  session.update('teh', true);
+  session.update('teh', { composing: true });
   t.mock.timers.tick(300);
   await flush();
   assert.equal(calls, 0);
@@ -84,6 +84,35 @@ test('composition waits and empty input clears immediately', async t => {
   assert.equal(states.at(-1).phase, 'empty');
   assert.deepEqual(states.at(-1).issues, []);
 });
+for (const [first, second] of [['en-US', 'en-GB'], ['en-GB', 'en-US']]) {
+  test(`changing ${first} to ${second} cancels old results for the same draft`, async t => {
+    let release;
+    let firstSignal;
+    const calls = [];
+    const { states, session } = setup(t, async (_url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push(body.language);
+      if (calls.length === 1) {
+        firstSignal = options.signal;
+        return new Promise(resolve => { release = resolve; });
+      }
+      return Response.json({ misspelled: [] });
+    });
+    session.update('colour', { language: first });
+    t.mock.timers.tick(300);
+    assert.ok(firstSignal, 'the first dialect check must start');
+    session.update('colour', { language: second });
+    assert.equal(firstSignal.aborted, true);
+    assert.deepEqual(states.at(-1).issues, []);
+    t.mock.timers.tick(300);
+    await flush();
+    release(Response.json({ misspelled: [{ word: 'colour', suggestions: ['color'] }] }));
+    await flush();
+    assert.deepEqual(calls, [first, second]);
+    assert.equal(states.at(-1).phase, 'ready');
+    assert.deepEqual(states.at(-1).issues, []);
+  });
+}
 test('disposing a session prevents delayed requests', async t => {
   let calls = 0;
   const { states, session } = setup(t, async () => { calls++; return Response.json({ misspelled: [] }); });

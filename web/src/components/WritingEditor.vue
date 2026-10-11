@@ -3,8 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { highlightParts, tokenize, selectionAfterReplacement } from '../tokenize.js';
 import { hitWord, popupPosition } from '../hover.js';
 
-const props = defineProps({ text: { type: String, required: true }, issues: { type: Array, required: true } });
-const emit = defineEmits(['edit', 'correct']);
+const props = defineProps({ text: { type: String, required: true }, issues: { type: Array, required: true }, language: { type: String, required: true } });
+const emit = defineEmits(['edit', 'correct', 'accept']);
 const highlight = ref(null);
 const input = ref(null);
 const popup = ref(null);
@@ -102,6 +102,12 @@ async function correct(suggestion) {
   field.scrollTop = highlight.value.scrollTop = top;
   field.scrollLeft = highlight.value.scrollLeft = left;
 }
+async function accept() {
+  emit('accept', active.value.word);
+  close();
+  await nextTick();
+  input.value.focus({ preventScroll: true });
+}
 function edit(event, composing = event.isComposing) {
   close();
   emit('edit', event.target.value, composing);
@@ -146,6 +152,7 @@ onBeforeUnmount(() => {
       aria-label="Your draft"
       aria-describedby="editor-help"
       :value="text"
+      :lang="language"
       spellcheck="false"
       autocomplete="off"
       placeholder="Start writing here…"
@@ -157,7 +164,7 @@ onBeforeUnmount(() => {
       @pointerleave="leave"
       @keydown="keyboard"
     ></textarea>
-    <span id="editor-help" class="sr-only">Misspelled words are underlined. Put the caret in a word and press Alt+ArrowDown for corrections. Use the arrow keys to choose and Escape to return to writing.</span>
+    <span id="editor-help" class="sr-only">Misspelled words are underlined. Put the caret in a word and press Alt+ArrowDown for corrections or Add to dictionary. Use the arrow keys to choose and Escape to return to writing.</span>
     <div
       v-if="active"
       ref="popup"
@@ -175,6 +182,7 @@ onBeforeUnmount(() => {
       <div class="correction-options">
         <button v-for="suggestion in active.suggestions" :key="suggestion" type="button" @click="correct(suggestion)">{{ suggestion }}</button>
         <span v-if="!active.suggestions.length" class="no-suggestions">No close matches.</span>
+        <button type="button" @click="accept">Add to dictionary</button>
       </div>
     </div>
   </div>

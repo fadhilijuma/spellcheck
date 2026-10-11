@@ -11,7 +11,7 @@ export function createSession(onChange, { fetcher, delay = 300, timeout = 10000 
     controller?.abort();
   }
 
-  function update(text, composing = false) {
+  function update(text, { composing = false, language } = {}) {
     dispose();
     const current = generation;
     onChange({ phase: text.trim() ? 'checking' : 'empty', issues: [], skipped: 0 });
@@ -22,7 +22,7 @@ export function createSession(onChange, { fetcher, delay = 300, timeout = 10000 
       const limit = setTimeout(() => request.abort(), timeout);
       deadline = limit;
       try {
-        const result = await checkDocument(text, { signal: request.signal, fetcher });
+        const result = await checkDocument(text, { signal: request.signal, fetcher, language });
         if (current === generation) onChange({ phase: 'ready', ...result });
       } catch {
         if (current === generation) onChange({ phase: 'offline', issues: [], skipped: 0 });
