@@ -70,7 +70,7 @@ the Go API stays on the private container network.
 | Decision | Reason and tradeoff |
 |---|---|
 | SymSpell via `eskriett/spell` | Reuses an indexed spelling implementation instead of scanning the dictionary or writing edit distance. Suggestions are word-based, not context-aware. |
-| Embedded frequency dictionary | Runs without an external service. Coverage is fixed; names and specialist terms may be flagged. |
+| Embedded US English spelling list | Based on ESDB/SCOWL size 60 and ranked with word frequencies. Runs without an external service; names and specialist terms may still be flagged. |
 | Vue editor with a Go JSON API | Browser code handles typing, marks and corrections; Go owns spelling. This requires separate frontend and backend builds. |
 | Debounced, cancellable checks | Reduces requests and prevents stale results. Feedback arrives after a 300 ms typing pause. |
 | Stateless prototype | No accounts or saved drafts. Focus stays on the writing-and-correction flow rather than persistence or production operations. |
@@ -190,7 +190,7 @@ proxy target; `VITE_SERVICE_API` changes the API base at frontend build time.
 
 ## Limits and Data
 
-- Embedded US English dictionary: 82,834 words. No grammar or real-word errors.
+- Embedded US English dictionary: 107,901 words. No grammar or real-word errors.
 - Hyphens split words; apostrophes remain inside words. Numbers, URLs and
   emails are skipped by the editor. The API accepts words of up to 64 runes.
 - Uppercase words are checked; suggestions preserve uppercase or initial caps.
@@ -233,13 +233,30 @@ outside this assignment's scope.
 
 ## Attribution
 
-Dictionary: [SymSpell](https://github.com/wolfgarbe/SymSpell) (MIT), derived
-from [SCOWL](http://wordlist.aspell.net/) (MIT-like) and
-[Google Books Ngram](https://storage.googleapis.com/books/ngrams/books/datasetsv2.html)
-(CC BY 3.0). `words.txt` is
-[frequency_dictionary_en_82_765.txt at commit c239062](https://github.com/wolfgarbe/SymSpell/blob/c239062ae02961df18ab7da1671d01b4388204e0/SymSpell/frequency_dictionary_en_82_765.txt)
-with only the byte-order mark removed. SHA-256:
-`5eb7d9ca29ba3aee23d11b8b3d3aa048d7e94538b468eeffd9e07f76de7d5125`.
+The spelling vocabulary is the US English size-60 list from
+[English Speller Database (ESDB)](https://github.com/en-wl/wordlist), release
+[`rel-2026.02.25`](https://github.com/en-wl/wordlist/releases/tag/rel-2026.02.25),
+generated from commit `7e99edab8e32f9f9ea2b15f249ca8d4d67237410`. The generated
+source list has SHA-256
+`4ff7e0b6d86763e1e042ffd746e94cdf4432618702deac303a1669e2a838db04`;
+`words.txt` normalizes case and apostrophes and retains only tokens accepted by
+this application. Existing SymSpell/Google Books frequencies are retained for
+overlapping words. New words receive the median existing frequency of their
+SCOWL size tier (35, 50 or 60); these are ranking estimates, not measured
+word-specific frequencies. The source frequency data is
+[SymSpell's frequency dictionary](https://github.com/wolfgarbe/SymSpell/blob/c239062ae02961df18ab7da1671d01b4388204e0/SymSpell/frequency_dictionary_en_82_765.txt),
+derived from [Google Books Ngram](https://storage.googleapis.com/books/ngrams/books/datasetsv2.html)
+(CC BY 3.0). The normalized embedded list has SHA-256
+`ec7dad1564bc1fcc78799cd2a151f25c5919ceb41b010694bf539c729452cc7d`.
+
+Copyright 2000-2026 by Kevin Atkinson
+
+Permission to use, copy, modify, distribute, and sell any part of SCOWLv2, or
+word lists created from it, is hereby granted without fee, provided that the
+above copyright notice appears in all copies and that both the above copyright
+notice and this notice appear in supporting documentation. Kevin Atkinson
+makes no representations about the suitability of this database for any
+purpose. It is provided "as is" without express or implied warranty.
 
 `eskriett/spell`, Vue and Vuetify are MIT-licensed; `ardanlabs/conf` is
 Apache-2.0. The API image includes compiled-module licenses and this

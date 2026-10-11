@@ -21,6 +21,48 @@ func Test_Check(t *testing.T) {
 	run(t, checkCancel(c), "check-cancel")
 }
 
+func Test_CheckEnglish(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewEnglish()
+	if err != nil {
+		t.Fatalf("Should be able to load the default dictionary : %s", err)
+	}
+
+	run(t, checkEnglish(c), "check-english")
+}
+
+func checkEnglish(c *Checker) []Table {
+	table := []Table{
+		{
+			Name:    "current-technical-word",
+			ExpResp: []result{{Word: "ChatGPT", Valid: true}},
+			ExcFunc: func(ctx context.Context) any { return checkWords(ctx, c, "ChatGPT") },
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "current-general-word",
+			ExpResp: []result{{Word: "codebase", Valid: true}},
+			ExcFunc: func(ctx context.Context) any { return checkWords(ctx, c, "codebase") },
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "misspelling-not-in-dictionary",
+			ExpResp: []result{{Word: "calender", Suggestions: []string{"calendar"}}},
+			ExcFunc: func(ctx context.Context) any { return checkWords(ctx, c, "calender") },
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "US-spelling",
+			ExpResp: []result{{Word: "colour", Suggestions: []string{"color"}}},
+			ExcFunc: func(ctx context.Context) any { return checkWords(ctx, c, "colour") },
+			CmpFunc: cmpDiff,
+		},
+	}
+
+	return table
+}
+
 func check(c *Checker) []Table {
 	table := []Table{
 		{

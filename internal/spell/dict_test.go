@@ -51,7 +51,7 @@ func dictionary() []Table {
 		},
 		{
 			Name:    "default-list",
-			ExpResp: 82834,
+			ExpResp: 107901,
 			ExcFunc: func(context.Context) any {
 				entries, err := parseDictionary(english)
 				if err != nil {

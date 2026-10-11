@@ -8,9 +8,8 @@ import (
 	"strings"
 )
 
-// english is the default dictionary: SymSpell's
-// frequency_dictionary_en_82_765.txt (MIT) without its byte-order mark, one
-// "word count" line per word; see README.
+// english is the embedded, normalized US English spelling list; see README
+// for its source and frequency ranking.
 //
 //go:embed words.txt
 var english string
