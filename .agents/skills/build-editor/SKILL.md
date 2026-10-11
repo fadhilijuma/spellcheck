@@ -12,22 +12,29 @@ duplicating spelling rules or response workarounds in the frontend.
 ## API
 
 ```text
-POST /v1/check   {"words": ["Teh", "quick"]}
+POST /v1/check   {"words": ["Teh", "quick"], "language": "en-US"}
 200              {"misspelled": [{"word": "Teh", "suggestions": ["The", "Ten"]}]}
 anything else    show "Check unavailable"
 ```
 
 Words not in `misspelled` are valid only after a successful, validated response.
 At most 500 words per request, each at most 64 Unicode code points.
+Language is `en-US` or `en-GB` (traditional British spelling). Omitted or empty
+uses the server's configured default. Read `GET /v1/config` for the initial editor
+selection; an explicitly saved user choice takes precedence. Do not save the
+server default as a user preference.
+Switching language rechecks the draft and cancels obsolete responses. Save only
+the language preference and accepted personal words in browser storage, never the draft.
 
 ## Files
 
 | File | Does |
 |---|---|
 | `src/tokenize.js` | finds words with their offsets; applies a correction |
-| `src/api.js` | `checkDocument`: dedupes words, skips long ones, sends batches of 200 |
+| `src/api.js` | `checkDocument`: dedupes words, skips long ones, sends batches of 200 with the selected language |
 | `src/session.js` | 300 ms debounce, cancels superseded checks, 10 s deadline |
 | `src/hover.js` | which word is under the pointer; where the popup goes |
+| `src/dictionary.js` | validates and normalizes browser-local personal words |
 | `src/App.vue`, `src/components/WritingEditor.vue` | the page and the editor |
 
 ## Rules
@@ -39,7 +46,10 @@ At most 500 words per request, each at most 64 Unicode code points.
 - A failed check keeps the text, clears old marks and never blocks typing.
 - Test pure helper behavior in adjacent `*.test.js` files and interactions in
   `web/tests/`. No router, store or extra UI library.
-- Do not add personal dictionaries or draft persistence to the prototype.
+- Personal words apply to both English variants, matching whole words regardless
+  of case or apostrophe style. Add them from the correction popup and allow removal.
+  Invalid saved data must not break editing; unavailable storage keeps changes
+  in memory for the current session. Do not add accounts or draft persistence.
 
 Done means `npm --prefix web test`, `npm --prefix web run test:browser` and
 `npm --prefix web run build` pass. `make check` runs all three with Go checks.

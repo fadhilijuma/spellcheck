@@ -6,6 +6,8 @@ English spell checker with a Go JSON API and a Vue/Vuetify editor. Checks run
 300 ms after typing stops. Hover, tap or press Alt+↓ on a misspelled word to
 choose a correction. Corrections replace exact, same-case occurrences and
 support Undo.
+Choose English (US) or English (UK) in the header. The default is configurable;
+the browser remembers your choice and rechecks the current draft when it changes.
 
 ## Index
 
@@ -70,7 +72,7 @@ the Go API stays on the private container network.
 | Decision | Reason and tradeoff |
 |---|---|
 | SymSpell via `eskriett/spell` | Reuses an indexed spelling implementation instead of scanning the dictionary or writing edit distance. Suggestions are word-based, not context-aware. |
-| Embedded US English spelling list | Based on ESDB/SCOWL size 60 and ranked with word frequencies. Runs without an external service; names and specialist terms may still be flagged. |
+| Embedded English spelling lists | ESDB/SCOWL size 60 for US and traditional British spelling, ranked with word frequencies. Each is indexed once at startup; both indexes remain in memory. |
 | Vue editor with a Go JSON API | Browser code handles typing, marks and corrections; Go owns spelling. This requires separate frontend and backend builds. |
 | Debounced, cancellable checks | Reduces requests and prevents stale results. Feedback arrives after a 300 ms typing pause. |
 | Stateless prototype | No accounts or saved drafts. Focus stays on the writing-and-correction flow rather than persistence or production operations. |
@@ -126,12 +128,13 @@ OS-specific IME testing are not included. CI runs `make test`.
 | Path | Responsibility |
 |---|---|
 | `cmd/spellcheck` | Configuration, dependency wiring, startup and shutdown |
-| `internal/spell` | Word validation, embedded dictionary and ranked suggestions |
+| `internal/spell` | Word validation, language selection and ranked suggestions |
+| `internal/spell/languages` | Embedded US/British dictionaries and a shared acronym allowlist |
 | `internal/httpapi` | Routing, JSON validation and middleware |
 | `web/src` | Editor, tokenization and request lifecycle |
 | `web/tests` | Browser regression tests against the real API |
 
-`main` constructs `spell.Checker` and passes it to `httpapi.New`. Spelling
+`main` constructs one `spell.Checker` per language and passes them to `httpapi.New`. Spelling
 does not depend on HTTP. `eskriett/spell` provides the SymSpell index and
 optimal string alignment distance; `ardanlabs/conf` provides configuration.
 
@@ -140,13 +143,14 @@ optimal string alignment distance; `ardanlabs/conf` provides configuration.
 | Method | Endpoint | Response |
 |---|---|---|
 | POST | `/v1/check` | Misspelled words and suggestions |
+| GET | `/v1/config` | Configured default English convention |
 | GET | `/v1/liveness` | 200, process and build details |
 | GET | `/v1/readiness` | 204, ready to accept traffic |
 
 ```bash
 curl -sS http://localhost:3000/v1/check \
   -H 'Content-Type: application/json' \
-  -d '{"words":["quick","recieve"]}'
+  -d '{"words":["quick","recieve"],"language":"en-US"}'
 ```
 
 ```json
@@ -157,12 +161,16 @@ Valid words are omitted; an all-valid request returns `{"misspelled":[]}`.
 Suggestions use the smallest available edit distance, up to two edits, then
 frequency descending with alphabetical ties. At most five are returned.
 
+`language` accepts `en-US` or `en-GB`. Omitted or empty uses the configured default.
+British English uses traditional `-ise` spelling: `colour`, `centre`,
+`organise` and `analyse`. Unsupported language values return 400.
+
 Handler errors use `{"error":"..."}`. Routing errors (404/405) use
 `ServeMux`'s standard plain-text responses.
 
 | Status | Condition |
 |---|---|
-| 400 | Invalid JSON, unknown fields, invalid word or word count outside 1–500 |
+| 400 | Invalid JSON, unknown fields, unsupported language, invalid word or word count outside 1–500 |
 | 413 | Body exceeds 129,564 bytes |
 | 404 | Unknown path |
 | 405 | Unsupported method; includes `Allow` |
@@ -174,6 +182,7 @@ Run `go run ./cmd/spellcheck -h` for flags. Environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `SPELL_DEFAULT_LANGUAGE` | `en-US` | Default English convention: `en-US` or `en-GB` |
 | `SPELL_WEB_API_HOST` | `0.0.0.0:3000` | API listen address |
 | `SPELL_WEB_READ_TIMEOUT` | `5s` | HTTP read timeout |
 | `SPELL_WEB_WRITE_TIMEOUT` | `10s` | HTTP write timeout |
@@ -184,19 +193,40 @@ Run `go run ./cmd/spellcheck -h` for flags. Environment variables:
 The CORS origin list is semicolon-separated. The supplied development and
 container setups use a same-origin proxy, so CORS is off by default.
 
+Set British English with `SPELL_DEFAULT_LANGUAGE=en-GB make run` or
+`go run ./cmd/spellcheck --default-language=en-GB`. Unsupported values fail startup.
+The container setup also accepts `SPELL_DEFAULT_LANGUAGE`.
+The editor reads `/v1/config` for its initial selection; an explicitly saved
+user choice takes precedence. Both dictionaries remain available for switching.
+
 The frontend uses `/v1` by default. `SPELL_API_PROXY` changes the development
 proxy target; `VITE_SERVICE_API` changes the API base at frontend build time.
 `make build BUILD=<tag>` sets the API build identifier.
 
 ## Limits and Data
 
-- Embedded US English dictionary: 107,901 words. No grammar or real-word errors.
+- Embedded dictionaries: 107,901 US words and 107,555 British words.
+  No grammar or real-word errors.
 - Hyphens split words; apostrophes remain inside words. Numbers, URLs and
   emails are skipped by the editor. The API accepts words of up to 64 runes.
-- Uppercase words are checked; suggestions preserve uppercase or initial caps.
+- `languages/acronyms.txt` contains one known uppercase acronym per line,
+  shared by both dictionaries. Acronyms are accepted as written and are not
+  added to correction candidates. Unlisted uppercase words are still checked;
+  suggestions preserve uppercase or initial caps.
+- Hover over an underlined word (or press Alt+ArrowDown with the caret in it)
+  and choose **Add to dictionary** to accept it. Use **Dictionary → Remove**
+  to undo an accepted word. Personal words apply to both English variants;
+  matching ignores case and treats straight/curly apostrophes alike, but does
+  not accept substrings or other inflections.
+- The language preference and personal words are saved in this browser's
+  `localStorage`; drafts are not saved. Clearing browser storage removes them.
+  If storage is unavailable, personal words last only for the current session.
+  Personal words filter spelling warnings locally; they do not change the
+  embedded dictionaries or the API's suggestions. Draft words are still sent
+  to the configured spelling API.
 - Requests contain 1–500 words and at most 129,564 bytes. The editor sends
   deduplicated batches of 200 words.
-- No accounts, personal dictionaries, saved drafts, metrics or per-client
+- No accounts, server-side personal dictionaries, saved drafts, metrics or per-client
   rate limiting. Writing is sent only to the configured spelling API.
 - Cancellation is checked between spelling lookups. An active library lookup
   is not interruptible; socket timeouts are not CPU deadlines. The editor's
@@ -217,15 +247,13 @@ Deferred work, in priority order:
 
 1. Evaluate correction accuracy on a pinned set of common typos, names and
    technical terms before changing dictionary coverage or suggestion ranking.
-2. Add a personal dictionary so names and specialist terms can be accepted.
-   Start browser-local; do not introduce accounts just for this feature.
-3. Test real mobile devices, screen readers and OS input methods. Automated
+2. Test real mobile devices, screen readers and OS input methods. Automated
    Chromium, Firefox, WebKit and touch/composition tests already exist.
-4. Add measured per-client rate and concurrency limits before public hosting,
+3. Add measured per-client rate and concurrency limits before public hosting,
    with tests for shared-IP fairness and overload behavior.
-5. Add request-rate, latency and saturation metrics without recording writing
+4. Add request-rate, latency and saturation metrics without recording writing
    content or client identifiers.
-6. Standardize 404/405 errors as JSON while preserving routing and `Allow`
+5. Standardize 404/405 errors as JSON while preserving routing and `Allow`
    headers, if other clients need a uniform error contract.
 
 Grammar checking, other languages, accounts and document storage remain
@@ -233,21 +261,39 @@ outside this assignment's scope.
 
 ## Attribution
 
-The spelling vocabulary is the US English size-60 list from
+The spelling vocabularies are the US and British size-60 lists from
 [English Speller Database (ESDB)](https://github.com/en-wl/wordlist), release
 [`rel-2026.02.25`](https://github.com/en-wl/wordlist/releases/tag/rel-2026.02.25),
-generated from commit `7e99edab8e32f9f9ea2b15f249ca8d4d67237410`. The generated
-source list has SHA-256
-`4ff7e0b6d86763e1e042ffd746e94cdf4432618702deac303a1669e2a838db04`;
-`words.txt` normalizes case and apostrophes and retains only tokens accepted by
-this application. Existing SymSpell/Google Books frequencies are retained for
+generated from commit `7e99edab8e32f9f9ea2b15f249ca8d4d67237410`. Source lists:
+[en_US.txt](https://github.com/en-wl/wordlist-diff/blob/71d7dd07676edb60ade43552e10b41314b7e9287/en_US.txt)
+and [en_GB-ise.txt](https://github.com/en-wl/wordlist-diff/blob/71d7dd07676edb60ade43552e10b41314b7e9287/en_GB-ise.txt).
+The embedded files in `internal/spell/languages` normalize case and apostrophes,
+remove duplicate forms and retain only tokens accepted by this application.
+Existing SymSpell/Google Books frequencies are retained for
 overlapping words. New words receive the median existing frequency of their
 SCOWL size tier (35, 50 or 60); these are ranking estimates, not measured
-word-specific frequencies. The source frequency data is
+word-specific frequencies:
+
+| List | Size 35 | Size 50 | Size 60 |
+|---|---:|---:|---:|
+| US | 758,778 | 185,608 | 84,142 |
+| British | 742,515 | 184,413 | 83,361 |
+
+The tiers can be reproduced from the pinned ESDB source with
+`./scowl word-list SIZE A 1 --deaccent` for US and
+`./scowl word-list SIZE B 1 --deaccent` for British spelling, where SIZE is
+35, 50 or 60. Size-50 and size-60 medians exclude words in the lower tiers.
+The source frequency data is
 [SymSpell's frequency dictionary](https://github.com/wolfgarbe/SymSpell/blob/c239062ae02961df18ab7da1671d01b4388204e0/SymSpell/frequency_dictionary_en_82_765.txt),
 derived from [Google Books Ngram](https://storage.googleapis.com/books/ngrams/books/datasetsv2.html)
-(CC BY 3.0). The normalized embedded list has SHA-256
-`ec7dad1564bc1fcc78799cd2a151f25c5919ceb41b010694bf539c729452cc7d`.
+(CC BY 3.0). Embedded file SHA-256 checksums:
+
+```text
+ec7dad1564bc1fcc78799cd2a151f25c5919ceb41b010694bf539c729452cc7d  en-US.txt
+9cafa27596dfefb9153ecac5bf2af6debca6137e895b601902da2c86c14c15f9  en-GB.txt
+```
+
+The shared acronym allowlist is maintained by this project.
 
 Copyright 2000-2026 by Kevin Atkinson
 

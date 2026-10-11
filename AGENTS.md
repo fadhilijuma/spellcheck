@@ -11,11 +11,11 @@ small application: keep it focused. README documents the behavior.
 | Path | Holds |
 |---|---|
 | `cmd/spellcheck` | `main`: config, wiring, shutdown. No logic |
-| `internal/spell` | spelling: `Checker`, `Word`, the embedded word list. No HTTP |
+| `internal/spell` | spelling: `Checker`, `Word`, embedded US/British word lists and acronyms. No HTTP |
 | `internal/httpapi` | routes, handlers, request/response, middleware. No spelling rules |
 | `web` | the Vue editor and its nginx container |
 
-`main` builds the `spell.Checker` and passes it to `httpapi.New`. `spell`
+`main` builds a `spell.Checker` per language and passes them to `httpapi.New`. `spell`
 imports nothing of ours.
 
 ## Skills
@@ -42,15 +42,21 @@ is available and authorized.
 
 - **Least code that works.** No interfaces with one implementation, no layers,
   no helpers used once, nothing "for later".
+- Keep package-level type declarations above functions. Avoid pass-through
+  getters for incidental bookkeeping; remove unused state instead.
 - **Dependencies:** the standard library, `eskriett/spell`, `ardanlabs/conf`,
   and `go-cmp` in tests. The frontend uses Vue/Vuetify and Playwright for
   development-only browser tests. Ask before adding anything.
 - **Tests are the spec, and every test is table-driven.** Never weaken,
   skip or delete one to get green.
 - **Out of scope:** grammar, other languages, accounts, document storage,
-  personal dictionaries, metrics and per-client rate limiting. These are
+  server-side personal dictionaries, metrics and per-client rate limiting. These are
   future improvements, not prototype features. Never collect drafts.
-- **Never edit `words.txt`** by hand.
+- The personal dictionary is browser-local and shared by both English variants.
+  Persist only accepted words and the language preference, never draft text.
+- **Never edit generated `languages/en-*.txt` files** by hand. The shared
+  `languages/acronyms.txt` is a curated list; do not treat every uppercase word
+  as a valid acronym.
 - **Never run `git commit`, `push`, `reset`, `rebase`** or anything that
   changes history; print the commands for the user.
 
