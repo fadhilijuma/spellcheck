@@ -44,7 +44,8 @@ func run(ctx context.Context, log *slog.Logger) error {
 
 	cfg := struct {
 		conf.Version
-		Web struct {
+		DefaultLanguage spell.Language `conf:"default:en-US,help:Default English convention (en-US or en-GB)"`
+		Web             struct {
 			ReadTimeout        time.Duration `conf:"default:5s"`
 			WriteTimeout       time.Duration `conf:"default:10s"`
 			IdleTimeout        time.Duration `conf:"default:120s"`
@@ -81,16 +82,19 @@ func run(ctx context.Context, log *slog.Logger) error {
 	log.Info("startup", "config", out)
 
 	// -------------------------------------------------------------------------
-	// Load the dictionary
+	// Load the dictionaries
 
-	log.Info("startup", "status", "loading dictionary")
+	log.Info("startup", "status", "loading dictionaries")
 
-	checker, err := spell.NewEnglish()
-	if err != nil {
-		return fmt.Errorf("spell: %w", err)
+	checkers := make(map[spell.Language]*spell.Checker)
+	for _, language := range []spell.Language{spell.EnglishUS, spell.EnglishGB} {
+		checker, err := spell.NewEnglish(language)
+		if err != nil {
+			return fmt.Errorf("load dictionary %s: %w", language, err)
+		}
+		checkers[language] = checker
+		log.Info("startup", "status", "dictionary loaded", "language", language)
 	}
-
-	log.Info("startup", "status", "dictionary loaded", "words", checker.Len())
 
 	// -------------------------------------------------------------------------
 	// Start API Service
@@ -102,9 +106,10 @@ func run(ctx context.Context, log *slog.Logger) error {
 	defer signal.Stop(shutdown)
 
 	handler := httpapi.New(log, httpapi.Config{
-		Build:       cfg.Build,
-		CORSOrigins: cfg.Web.CORSAllowedOrigins,
-		Checker:     checker,
+		DefaultLanguage: cfg.DefaultLanguage,
+		Build:           cfg.Build,
+		CORSOrigins:     cfg.Web.CORSAllowedOrigins,
+		Checkers:        checkers,
 	})
 
 	api := http.Server{

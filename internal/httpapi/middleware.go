@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// statusRecorder remembers the status code written, for logRequests.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
 // logRequests logs one line per request. Status 0 means no response was
 // written because the client left first.
 func logRequests(log *slog.Logger, next http.Handler) http.Handler {
@@ -92,12 +98,6 @@ func cleanPath(next http.Handler) http.Handler {
 }
 
 // =============================================================================
-
-// statusRecorder remembers the status code written, for logRequests.
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
 
 func (s *statusRecorder) WriteHeader(status int) {
 	if s.status == 0 {

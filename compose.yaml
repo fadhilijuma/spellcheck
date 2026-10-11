@@ -5,6 +5,8 @@ services:
   app:
     build: .
     image: localhost/spellcheck
+    environment:
+      SPELL_DEFAULT_LANGUAGE: ${SPELL_DEFAULT_LANGUAGE:-en-US}
     # The API is private; the editor reaches it through nginx.
     restart: unless-stopped
   web:

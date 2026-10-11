@@ -8,6 +8,21 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+// result is a Result with plain values.
+type result struct {
+	Word        string
+	Valid       bool
+	Suggestions []string
+}
+
+// Table describes a unit test's execution and expected response.
+type Table struct {
+	Name    string
+	ExpResp any
+	ExcFunc func(ctx context.Context) any
+	CmpFunc func(got any, exp any) string
+}
+
 func Test_Check(t *testing.T) {
 	t.Parallel()
 
@@ -24,12 +39,52 @@ func Test_Check(t *testing.T) {
 func Test_CheckEnglish(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewEnglish()
+	c, err := NewEnglish(EnglishUS)
 	if err != nil {
 		t.Fatalf("Should be able to load the default dictionary : %s", err)
 	}
 
 	run(t, checkEnglish(c), "check-english")
+
+	british, err := NewEnglish(EnglishGB)
+	if err != nil {
+		t.Fatalf("Should be able to load the British dictionary : %s", err)
+	}
+
+	run(t, dialects(c, british), "dialect")
+}
+
+func dialects(american, british *Checker) []Table {
+	return []Table{
+		{
+			Name:    "American-spelling",
+			ExpResp: []bool{true, true, true, true, false, false, false, false},
+			ExcFunc: func(ctx context.Context) any {
+				return validity(ctx, american, "color", "center", "organize", "analyze", "colour", "centre", "organise", "analyse")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "British-spelling",
+			ExpResp: []bool{false, false, false, false, true, true, true, true},
+			ExcFunc: func(ctx context.Context) any {
+				return validity(ctx, british, "color", "center", "organize", "analyze", "colour", "centre", "organise", "analyse")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "American-acronyms",
+			ExpResp: []bool{true, true, false, false, false},
+			ExcFunc: func(ctx context.Context) any { return validity(ctx, american, "JWT", "DNS", "TEH", "ZZZZZZ", "jwt") },
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "British-acronyms",
+			ExpResp: []bool{true, true, false, false, false},
+			ExcFunc: func(ctx context.Context) any { return validity(ctx, british, "JWT", "DNS", "TEH", "ZZZZZZ", "jwt") },
+			CmpFunc: cmpDiff,
+		},
+	}
 }
 
 func checkEnglish(c *Checker) []Table {
@@ -271,7 +326,7 @@ func checkCancel(c *Checker) []Table {
 }
 
 func BenchmarkCheck(b *testing.B) {
-	c, err := NewEnglish()
+	c, err := NewEnglish(EnglishUS)
 	if err != nil {
 		b.Fatalf("Should be able to load the default dictionary : %s", err)
 	}
@@ -303,7 +358,7 @@ func BenchmarkCheck(b *testing.B) {
 
 // =============================================================================
 
-// testDict is a small dictionary so the tests do not depend on words.txt.
+// testDict is a small dictionary so tests do not depend on the embedded lists.
 const testDict = `
 the 1000
 then 300
@@ -315,21 +370,6 @@ receive 60
 relieve 40
 don't 70
 `
-
-// result is a Result with plain values.
-type result struct {
-	Word        string
-	Valid       bool
-	Suggestions []string
-}
-
-// Table describes a unit test's execution and expected response.
-type Table struct {
-	Name    string
-	ExpResp any
-	ExcFunc func(ctx context.Context) any
-	CmpFunc func(got any, exp any) string
-}
 
 // run executes the named cases, each with its subtest's context.
 func run(t *testing.T, table []Table, testName string) {
@@ -387,4 +427,18 @@ func checkWords(ctx context.Context, c *Checker, words ...string) any {
 		}
 	}
 	return results
+}
+
+// validity compares vocabulary membership without coupling tests to rankings.
+func validity(ctx context.Context, c *Checker, words ...string) any {
+	got := checkWords(ctx, c, words...)
+	results, ok := got.([]result)
+	if !ok {
+		return got
+	}
+	valid := make([]bool, len(results))
+	for i, result := range results {
+		valid[i] = result.Valid
+	}
+	return valid
 }

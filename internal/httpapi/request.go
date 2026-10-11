@@ -20,7 +20,8 @@ const (
 
 // checkRequest is the body of POST /v1/check.
 type checkRequest struct {
-	Words []string `json:"words"`
+	Words    []string `json:"words"`
+	Language string   `json:"language"`
 }
 
 // decodeCheck reads exactly one JSON object of at most maxBodyBytes with no

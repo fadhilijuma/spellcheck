@@ -35,13 +35,29 @@ type Result struct {
 // (github.com/eskriett/spell). It is read-only after construction and safe
 // for concurrent use.
 type Checker struct {
-	index *symspell.Spell
-	words int
+	index    *symspell.Spell
+	acronyms map[string]struct{}
 }
 
-// NewEnglish builds a Checker over the embedded English dictionary.
-func NewEnglish() (*Checker, error) {
-	return New(english)
+// NewEnglish builds a Checker over the selected embedded English dictionary.
+func NewEnglish(language Language) (*Checker, error) {
+	language, err := ParseLanguage(string(language))
+	if err != nil {
+		return nil, err
+	}
+	dict := americanEnglish
+	if language == EnglishGB {
+		dict = britishEnglish
+	}
+	c, err := New(dict)
+	if err != nil {
+		return nil, fmt.Errorf("load %s: %w", language, err)
+	}
+	c.acronyms, err = parseAcronyms(knownAcronyms)
+	if err != nil {
+		return nil, fmt.Errorf("acronyms: %w", err)
+	}
+	return c, nil
 }
 
 // New builds a Checker over dict, made of "word count" lines.
@@ -55,28 +71,14 @@ func New(dict string) (*Checker, error) {
 	index.MaxEditDistance = maxDistance
 	index.PrefixLength = prefixLength
 
-	var words int
 	for _, e := range entries {
-		added, err := index.AddEntry(symspell.Entry{Word: key(e.word), Frequency: e.count})
+		_, err := index.AddEntry(symspell.Entry{Word: key(e.word), Frequency: e.count})
 		if err != nil {
 			return nil, fmt.Errorf("index %q: %w", e.word, err)
 		}
-		if added {
-			words++
-		}
 	}
 
-	c := Checker{
-		index: index,
-		words: words,
-	}
-
-	return &c, nil
-}
-
-// Len returns the number of words in the dictionary.
-func (c *Checker) Len() int {
-	return c.words
+	return &Checker{index: index}, nil
 }
 
 // Check checks each word and returns one Result per word, in input order.
@@ -104,6 +106,9 @@ func (c *Checker) Check(ctx context.Context, words []Word) ([]Result, error) {
 // check reports w as valid when it is in the dictionary, regardless of case,
 // and otherwise suggests the known words closest to it.
 func (c *Checker) check(w Word) (Result, error) {
+	if _, ok := c.acronyms[w.value]; ok {
+		return Result{Word: w, Valid: true}, nil
+	}
 	k := key(w)
 
 	entry, err := c.index.GetEntry(k)

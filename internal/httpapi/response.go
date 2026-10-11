@@ -10,6 +10,11 @@ import (
 	"github.com/fadhilijuma/spellcheck/internal/spell"
 )
 
+// configurationResponse contains the initial editor convention.
+type configurationResponse struct {
+	DefaultLanguage spell.Language `json:"defaultLanguage"`
+}
+
 // misspelling is a misspelled word and its suggestions.
 type misspelling struct {
 	Word        string   `json:"word"`
@@ -20,25 +25,6 @@ type misspelling struct {
 // omitted; Misspelled is [] when all words are valid, never null.
 type checkResponse struct {
 	Misspelled []misspelling `json:"misspelled"`
-}
-
-func toCheckResponse(results []spell.Result) checkResponse {
-	resp := checkResponse{Misspelled: []misspelling{}}
-
-	for _, r := range results {
-		if r.Valid {
-			continue
-		}
-
-		suggestions := make([]string, 0, len(r.Suggestions))
-		for _, s := range r.Suggestions {
-			suggestions = append(suggestions, s.String())
-		}
-
-		resp.Misspelled = append(resp.Misspelled, misspelling{Word: r.Word.String(), Suggestions: suggestions})
-	}
-
-	return resp
 }
 
 // livenessResponse is the body of GET /v1/liveness.
@@ -59,6 +45,25 @@ type errorResponse struct {
 // badRequestError is an error the client caused; its message is sent back.
 type badRequestError struct {
 	err error
+}
+
+func toCheckResponse(results []spell.Result) checkResponse {
+	resp := checkResponse{Misspelled: []misspelling{}}
+
+	for _, r := range results {
+		if r.Valid {
+			continue
+		}
+
+		suggestions := make([]string, 0, len(r.Suggestions))
+		for _, s := range r.Suggestions {
+			suggestions = append(suggestions, s.String())
+		}
+
+		resp.Misspelled = append(resp.Misspelled, misspelling{Word: r.Word.String(), Suggestions: suggestions})
+	}
+
+	return resp
 }
 
 func (e *badRequestError) Error() string {

@@ -17,10 +17,26 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+// Table describes a unit test's execution and expected response.
+type Table struct {
+	Name    string
+	ExpResp any
+	ExcFunc func(ctx context.Context) any
+	CmpFunc func(got any, exp any) string
+}
+
+// response is what the server wrote.
+type response struct {
+	Status      int
+	Body        string
+	Allow       string
+	AllowOrigin string
+}
+
 func Test_API(t *testing.T) {
 	t.Parallel()
 
-	srv := newServer(t)
+	srv := newServer(t, spell.EnglishUS)
 
 	run(t, health(srv), "health")
 	run(t, routing(srv), "routing")
@@ -37,7 +53,7 @@ func Test_PrototypeScope(t *testing.T) {
 			Name:    "repeated checks are accepted without a client budget",
 			ExpResp: true, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
-				srv := newServer(t)
+				srv := newServer(t, spell.EnglishUS)
 				for range 25 {
 					r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/check", strings.NewReader(`{"words":["the"]}`))
 					w := httptest.NewRecorder()
@@ -52,12 +68,51 @@ func Test_PrototypeScope(t *testing.T) {
 		{
 			Name: "metrics endpoint is not part of the prototype", ExpResp: response{Status: http.StatusNotFound, Body: "404 page not found"}, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
-				srv := newServer(t)
+				srv := newServer(t, spell.EnglishUS)
 				return serve(ctx, srv, http.MethodGet, "/v1/metrics", "", nil)
 			},
 		},
 	}
 	run(t, table, "prototype")
+}
+
+func Test_DefaultLanguage(t *testing.T) {
+	t.Parallel()
+	table := []Table{
+		{
+			Name:    "configuration",
+			ExpResp: response{Status: http.StatusOK, Body: `{"defaultLanguage":"en-GB"}`},
+			ExcFunc: func(ctx context.Context) any {
+				return serve(ctx, newServer(t, spell.EnglishGB), http.MethodGet, "/v1/config", "", nil)
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "omitted-language",
+			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[{"word":"color","suggestions":["colour"]}]}`},
+			ExcFunc: func(ctx context.Context) any {
+				return post(ctx, newServer(t, spell.EnglishGB), `{"words":["color","colour"]}`)
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "empty-language",
+			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[{"word":"color","suggestions":["colour"]}]}`},
+			ExcFunc: func(ctx context.Context) any {
+				return post(ctx, newServer(t, spell.EnglishGB), `{"language":"","words":["color","colour"]}`)
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "explicit-language-overrides-default",
+			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[{"word":"colour","suggestions":["color"]}]}`},
+			ExcFunc: func(ctx context.Context) any {
+				return post(ctx, newServer(t, spell.EnglishGB), `{"language":"en-US","words":["color","colour"]}`)
+			},
+			CmpFunc: cmpDiff,
+		},
+	}
+	run(t, table, "default-language")
 }
 
 func health(srv http.Handler) []Table {
@@ -120,6 +175,28 @@ func routing(srv http.Handler) []Table {
 func check200(srv http.Handler) []Table {
 	table := []Table{
 		{
+			Name:    "American-language",
+			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[{"word":"colour","suggestions":["color"]}]}`},
+			ExcFunc: func(ctx context.Context) any {
+				return post(ctx, srv, `{"language":"en-US","words":["color","colour"]}`)
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "British-language",
+			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[{"word":"color","suggestions":["colour"]}]}`},
+			ExcFunc: func(ctx context.Context) any {
+				return post(ctx, srv, `{"language":"en-GB","words":["color","colour"]}`)
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "omitted-language-defaults-to-American",
+			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[{"word":"colour","suggestions":["color"]}]}`},
+			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["color","colour"]}`) },
+			CmpFunc: cmpDiff,
+		},
+		{
 			Name:    "uppercase-typo",
 			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[{"word":"TEH","suggestions":["THE","TEN","TEA"]}]}`},
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["TEH","NASA"]}`) },
@@ -164,6 +241,12 @@ func check400(srv http.Handler) []Table {
 	tooMany := `{"words":[` + strings.Repeat(`"the",`, 500) + `"the"]}`
 
 	table := []Table{
+		{
+			Name:    "unsupported-language",
+			ExpResp: badRequestBody(`language \"fr-FR\": expected en-US or en-GB`),
+			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"language":"fr-FR","words":["the"]}`) },
+			CmpFunc: cmpDiff,
+		},
 		{
 			Name:    "empty-body",
 			ExpResp: badRequestBody("decode request: EOF"),
@@ -282,30 +365,15 @@ func checkCORS(srv http.Handler) []Table {
 const editorOrigin = "http://editor.example"
 
 // seedDict is the dictionary the test server checks against, so the tests do
-// not depend on words.txt.
+// not depend on the embedded language lists.
 const seedDict = `
 the 100
 ten 50
 tea 40
 quick 30
 nasa 20
+color 25
 `
-
-// Table describes a unit test's execution and expected response.
-type Table struct {
-	Name    string
-	ExpResp any
-	ExcFunc func(ctx context.Context) any
-	CmpFunc func(got any, exp any) string
-}
-
-// response is what the server wrote.
-type response struct {
-	Status      int
-	Body        string
-	Allow       string
-	AllowOrigin string
-}
 
 // run executes the named cases, each with its subtest's context.
 func run(t *testing.T, table []Table, testName string) {
@@ -329,18 +397,23 @@ func cmpDiff(got any, exp any) string {
 }
 
 // newServer builds the service's handler over seedDict.
-func newServer(t *testing.T) http.Handler {
+func newServer(t *testing.T, defaultLanguage spell.Language) http.Handler {
 	t.Helper()
 
 	checker, err := spell.New(seedDict)
 	if err != nil {
 		t.Fatalf("Should be able to load the seed dictionary : %s", err)
 	}
+	british, err := spell.New(strings.ReplaceAll(seedDict, "color", "colour"))
+	if err != nil {
+		t.Fatalf("Should be able to load the British seed dictionary : %s", err)
+	}
 
 	return httpapi.New(slog.New(slog.NewTextHandler(io.Discard, nil)), httpapi.Config{
-		Build:       "test",
-		CORSOrigins: []string{editorOrigin},
-		Checker:     checker,
+		DefaultLanguage: defaultLanguage,
+		Build:           "test",
+		CORSOrigins:     []string{editorOrigin},
+		Checkers:        map[spell.Language]*spell.Checker{spell.EnglishUS: checker, spell.EnglishGB: british},
 	})
 }
 
