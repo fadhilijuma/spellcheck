@@ -1,7 +1,9 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -32,6 +34,15 @@ type response struct {
 	AllowOrigin string
 }
 
+// requestLog is the stable part of one structured request log.
+type requestLog struct {
+	Level   string `json:"level"`
+	Message string `json:"msg"`
+	Status  int    `json:"status"`
+	Error   string `json:"err"`
+	Records int    `json:"-"`
+}
+
 func Test_API(t *testing.T) {
 	t.Parallel()
 
@@ -43,6 +54,7 @@ func Test_API(t *testing.T) {
 	run(t, check400(srv), "check-400")
 	run(t, check413(srv), "check-413")
 	run(t, checkCORS(srv), "check-cors")
+	run(t, internalFailures(), "internal-failures")
 }
 
 func Test_PrototypeScope(t *testing.T) {
@@ -242,49 +254,55 @@ func check400(srv http.Handler) []Table {
 	table := []Table{
 		{
 			Name:    "unsupported-language",
-			ExpResp: badRequestBody(`language \"fr-FR\": expected en-US or en-GB`),
+			ExpResp: badRequestBody(`parse check language: language \"fr-FR\": expected en-US or en-GB`),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"language":"fr-FR","words":["the"]}`) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "empty-body",
-			ExpResp: badRequestBody("decode request: EOF"),
+			ExpResp: badRequestBody("decode check request: decode request: EOF"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, ``) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "invalid-json",
-			ExpResp: badRequestBody("decode request: unexpected EOF"),
+			ExpResp: badRequestBody("decode check request: decode request: unexpected EOF"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":[`) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "trailing-data",
-			ExpResp: badRequestBody("decode request: body must hold one JSON object"),
+			ExpResp: badRequestBody("decode check request: decode request: body must hold one JSON object"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["the"]} {}`) },
 			CmpFunc: cmpDiff,
 		},
 		{
+			Name:    "malformed-trailing-data",
+			ExpResp: badRequestBody("decode check request: decode trailing data: unexpected EOF"),
+			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["the"]} {`) },
+			CmpFunc: cmpDiff,
+		},
+		{
 			Name:    "unknown-field",
-			ExpResp: badRequestBody(`decode request: json: unknown field \"lang\"`),
+			ExpResp: badRequestBody(`decode check request: decode request: json: unknown field \"lang\"`),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["the"],"lang":"en"}`) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "no-words",
-			ExpResp: badRequestBody("words: at least 1 required"),
+			ExpResp: badRequestBody("parse check words: words: at least 1 required"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":[]}`) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "too-many-words",
-			ExpResp: badRequestBody("words: max 500 per request"),
+			ExpResp: badRequestBody("parse check words: words: max 500 per request"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, tooMany) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "invalid-word",
-			ExpResp: badRequestBody(`words[1]: invalid word \"abc1\": unexpected '1'`),
+			ExpResp: badRequestBody(`parse check words: words[1]: invalid word \"abc1\": unexpected '1'`),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["the","abc1"]}`) },
 			CmpFunc: cmpDiff,
 		},
@@ -360,6 +378,40 @@ func checkCORS(srv http.Handler) []Table {
 
 // =============================================================================
 
+// internalFailures checks that operational details do not reach the client.
+func internalFailures() []Table {
+	return []Table{
+		{
+			Name:    "unconfigured checker is redacted",
+			ExpResp: response{Status: http.StatusInternalServerError, Body: `{"error":"internal server error"}`},
+			ExcFunc: func(ctx context.Context) any {
+				handler := httpapi.New(slog.New(slog.NewTextHandler(io.Discard, nil)), spell.EnglishUS, "test", nil, nil)
+				return post(ctx, handler, `{"words":["the"]}`)
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "internal failure is logged once at the request boundary",
+			ExpResp: requestLog{Level: "ERROR", Message: "request", Status: http.StatusInternalServerError, Error: "checker for en-US is not configured", Records: 1},
+			ExcFunc: func(ctx context.Context) any {
+				var output bytes.Buffer
+				handler := httpapi.New(slog.New(slog.NewJSONHandler(&output, nil)), spell.EnglishUS, "test", nil, nil)
+				post(ctx, handler, `{"words":["the"]}`)
+				records := bytes.Count(output.Bytes(), []byte("\n"))
+				var entry requestLog
+				if err := json.NewDecoder(&output).Decode(&entry); err != nil {
+					return err.Error()
+				}
+				entry.Records = records
+				return entry
+			},
+			CmpFunc: cmpDiff,
+		},
+	}
+}
+
+// =============================================================================
+
 // editorOrigin is the browser origin the test server allows.
 const editorOrigin = "http://editor.example"
 
@@ -409,12 +461,13 @@ func newServer(t *testing.T, defaultLanguage spell.Language) http.Handler {
 		t.Fatalf("Should be able to load the British seed dictionary : %s", err)
 	}
 
-	return httpapi.New(slog.New(slog.NewTextHandler(io.Discard, nil)), httpapi.Config{
-		DefaultLanguage: defaultLanguage,
-		Build:           "test",
-		CORSOrigins:     []string{editorOrigin},
-		Checkers:        map[spell.Language]*spell.Checker{spell.EnglishUS: checker, spell.EnglishGB: british},
-	})
+	return httpapi.New(
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		defaultLanguage,
+		"test",
+		[]string{editorOrigin},
+		map[spell.Language]*spell.Checker{spell.EnglishUS: checker, spell.EnglishGB: british},
+	)
 }
 
 // serve sends one request to h and returns what h wrote.

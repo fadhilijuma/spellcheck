@@ -1,6 +1,9 @@
 package httpapi
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"path"
@@ -9,26 +12,38 @@ import (
 	"time"
 )
 
-// statusRecorder remembers the status code written, for logRequests.
+// statusRecorder remembers the status code written, for request logging.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
 }
 
-// logRequests logs one line per request. Status 0 means no response was
-// written because the client left first.
-func logRequests(log *slog.Logger, next http.Handler) http.Handler {
+// handleRequest adapts a returning handler to net/http and handles its error once.
+// Internal details stay in the request log; canceled clients get no response.
+func handleRequest(log *slog.Logger, next func(http.ResponseWriter, *http.Request) (int, error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w}
 
-		next.ServeHTTP(rec, r)
-
-		log.InfoContext(r.Context(), "request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", rec.status,
-			"took", time.Since(start).String())
+		attrs := []any{"method", r.Method, "path", r.URL.Path}
+		level := slog.LevelInfo
+		status, err := next(rec, r)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			message := err.Error()
+			limit, oversized := errors.AsType[*http.MaxBytesError](err)
+			switch {
+			case status >= http.StatusInternalServerError:
+				level = slog.LevelError
+				attrs = append(attrs, "err", err)
+				message = "internal server error"
+			case oversized:
+				status = http.StatusRequestEntityTooLarge
+				message = fmt.Sprintf("request body is larger than %d bytes", limit.Limit)
+			}
+			writeJSON(rec, status, errorResponse{Error: message})
+		}
+		attrs = append(attrs, "status", rec.status, "took", time.Since(start).String())
+		log.Log(r.Context(), level, "request", attrs...)
 	})
 }
 

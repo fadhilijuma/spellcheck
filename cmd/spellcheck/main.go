@@ -107,12 +107,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(shutdown)
 
-	handler := httpapi.New(log, httpapi.Config{
-		DefaultLanguage: cfg.DefaultLanguage,
-		Build:           cfg.Build,
-		CORSOrigins:     cfg.Web.CORSAllowedOrigins,
-		Checkers:        checkers,
-	})
+	handler := httpapi.New(log, cfg.DefaultLanguage, cfg.Build, cfg.Web.CORSAllowedOrigins, checkers)
 
 	api := http.Server{
 		Addr:         cfg.Web.APIHost,
@@ -145,7 +140,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 		defer cancel()
 
 		if err := api.Shutdown(ctx); err != nil {
-			return errors.Join(fmt.Errorf("could not stop server gracefully: %w", err), api.Close())
+			return fmt.Errorf("shutdown server: %w", errors.Join(err, api.Close()))
 		}
 
 		log.Info("shutdown", "status", "shutdown complete")

@@ -13,40 +13,30 @@ import (
 	"github.com/fadhilijuma/spellcheck/internal/spell"
 )
 
-// Config is what the handlers need.
-type Config struct {
-	DefaultLanguage spell.Language
-	Build           string
-	CORSOrigins     []string // browser origins allowed to call the API; empty turns CORS off
-	Checkers        map[spell.Language]*spell.Checker
-}
-
 type app struct {
 	defaultLanguage spell.Language
-	log             *slog.Logger
 	build           string
 	checkers        map[spell.Language]*spell.Checker
 }
 
 // New returns the service's HTTP handler with all routes and middleware.
 // Health probes are not logged: the container runtime calls them every few
-// seconds.
-func New(log *slog.Logger, cfg Config) http.Handler {
+// seconds. An empty corsOrigins list disables CORS.
+func New(log *slog.Logger, defaultLanguage spell.Language, build string, corsOrigins []string, checkers map[spell.Language]*spell.Checker) http.Handler {
 	a := app{
-		defaultLanguage: cmp.Or(cfg.DefaultLanguage, spell.EnglishUS),
-		log:             log,
-		build:           cfg.Build,
-		checkers:        cfg.Checkers,
+		defaultLanguage: cmp.Or(defaultLanguage, spell.EnglishUS),
+		build:           build,
+		checkers:        checkers,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/config", a.configuration)
 	mux.HandleFunc("GET /v1/liveness", a.liveness)
 	mux.HandleFunc("GET /v1/readiness", a.readiness)
-	mux.Handle("POST /v1/check", logRequests(log, http.HandlerFunc(a.check)))
+	mux.Handle("POST /v1/check", handleRequest(log, a.check))
 
 	h := recoverPanics(log, mux)
-	h = cors(cfg.CORSOrigins, h)
+	h = cors(corsOrigins, h)
 	h = cleanPath(h)
 
 	return h
@@ -80,36 +70,32 @@ func (a *app) readiness(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// check returns the misspelled words among those sent, each with its
-// suggestions; valid words are omitted.
-func (a *app) check(w http.ResponseWriter, r *http.Request) {
+// check writes misspelled words and suggestions, omitting valid words.
+// Failures are returned with an HTTP status for the request boundary to handle.
+func (a *app) check(w http.ResponseWriter, r *http.Request) (int, error) {
 	req, err := decodeCheck(w, r)
 	if err != nil {
-		a.respondError(w, r, err)
-		return
+		return http.StatusBadRequest, fmt.Errorf("decode check request: %w", err)
 	}
 
 	words, err := toWords(req)
 	if err != nil {
-		a.respondError(w, r, err)
-		return
+		return http.StatusBadRequest, fmt.Errorf("parse check words: %w", err)
 	}
 
 	language, err := spell.ParseLanguage(cmp.Or(req.Language, string(a.defaultLanguage)))
 	if err != nil {
-		a.respondError(w, r, badRequest(err))
-		return
+		return http.StatusBadRequest, fmt.Errorf("parse check language: %w", err)
 	}
 	checker := a.checkers[language]
 	if checker == nil {
-		a.respondError(w, r, fmt.Errorf("checker for %s is not configured", language))
-		return
+		return http.StatusInternalServerError, fmt.Errorf("checker for %s is not configured", language)
 	}
 	results, err := checker.Check(r.Context(), words)
 	if err != nil {
-		a.respondError(w, r, err)
-		return
+		return http.StatusInternalServerError, fmt.Errorf("check words: %w", err)
 	}
 
 	writeJSON(w, http.StatusOK, toCheckResponse(results))
+	return http.StatusOK, nil
 }

@@ -1,14 +1,16 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/fadhilijuma/spellcheck/internal/spell"
 )
+
+// errorResponse is the JSON body of an HTTP failure, not a Go error type.
+type errorResponse struct {
+	Error string `json:"error"`
+}
 
 // configurationResponse contains the initial editor convention.
 type configurationResponse struct {
@@ -34,17 +36,7 @@ type livenessResponse struct {
 	Host   string `json:"host"`
 }
 
-// errorResponse is the body of every error the API answers with.
-type errorResponse struct {
-	Error string `json:"error"`
-}
-
 // =============================================================================
-
-// badRequestError is an error the client caused; its message is sent back.
-type badRequestError struct {
-	err error
-}
 
 func toCheckResponse(results []spell.Result) checkResponse {
 	resp := checkResponse{Misspelled: []misspelling{}}
@@ -63,47 +55,6 @@ func toCheckResponse(results []spell.Result) checkResponse {
 	}
 
 	return resp
-}
-
-func (e *badRequestError) Error() string {
-	return e.err.Error()
-}
-
-func (e *badRequestError) Unwrap() error {
-	return e.err
-}
-
-// badRequest marks err as caused by the request, so respondError answers 400.
-func badRequest(err error) error {
-	return &badRequestError{err: err}
-}
-
-// respondError is the one place that turns an error into a response:
-//
-//	400 the request is invalid; the message says why
-//	413 the body is over maxBodyBytes
-//	nothing when the client has gone
-//	500 anything else; logged, details kept out of the response
-func (a *app) respondError(w http.ResponseWriter, r *http.Request, err error) {
-	var (
-		badReq   *badRequestError
-		tooLarge *http.MaxBytesError
-	)
-
-	switch {
-	case errors.As(err, &badReq):
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: badReq.Error()})
-
-	case errors.As(err, &tooLarge):
-		writeJSON(w, http.StatusRequestEntityTooLarge, errorResponse{Error: fmt.Sprintf("request body is larger than %d bytes", tooLarge.Limit)})
-
-	case errors.Is(err, context.Canceled):
-		// The client left; there is no one to answer.
-
-	default:
-		a.log.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "err", err)
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "internal server error"})
-	}
 }
 
 // writeJSON writes v as the JSON body with status.
