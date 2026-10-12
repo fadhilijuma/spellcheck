@@ -1,7 +1,7 @@
 # ==============================================================================
 # Configuration
 #
-# Requires Go 1.26+, Node 22.12+ and Make. Race tests need a C compiler.
+# Requires Go 1.27.2+, Node 22.12+ and Make. Race tests need a C compiler.
 # Override BUILD to identify a binary, or COMPOSE to use Docker Compose.
 
 BUILD   ?= develop

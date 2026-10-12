@@ -1,7 +1,7 @@
 # Go spelling API only, running as non-root; frontend has its own image.
 # Build: podman build -t spellcheck .
 
-ARG GO_VERSION=1.26.9
+ARG GO_VERSION=1.27.2
 
 FROM docker.io/library/golang:${GO_VERSION}-alpine AS build
 WORKDIR /src
