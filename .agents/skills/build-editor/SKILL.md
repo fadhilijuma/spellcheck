@@ -18,10 +18,15 @@ anything else    show "Check unavailable"
 ```
 
 Words not in `misspelled` are valid only after a successful, validated response.
-At most 500 words per request, each at most 64 Unicode code points.
+Read `maxWordLen`, `maxWords` and `maxBodyBytes` from `GET /v1/config`.
+Validate these settings when loading configuration, not on each document check.
+Batch against both the configured word count and actual UTF-8 JSON body bytes;
+do not duplicate startup defaults or estimate byte size from character counts.
+A word that cannot fit the body budget is a failed check, not a valid word.
 Language is `en-US` or `en-GB` (traditional British spelling). Omitted or empty
 uses the server's configured default. Read `GET /v1/config` for the initial editor
-selection; an explicitly saved user choice takes precedence. Do not save the
+selection and request limits, including when a language choice is already saved.
+An explicitly saved user choice takes precedence. Do not save the
 server default as a user preference.
 Switching language rechecks the draft and cancels obsolete responses. Save only
 the language preference and accepted personal words in browser storage, never the draft.
@@ -31,7 +36,7 @@ the language preference and accepted personal words in browser storage, never th
 | File | Does |
 |---|---|
 | `src/tokenize.js` | finds words with their offsets; applies a correction |
-| `src/api.js` | `checkDocument`: dedupes words, skips long ones, sends batches of 200 with the selected language |
+| `src/api.js` | `checkDocument`: dedupes words, skips long ones, batches within configured count/byte limits with the selected language |
 | `src/session.js` | 300 ms debounce, cancels superseded checks, 10 s deadline |
 | `src/hover.js` | which word is under the pointer; where the popup goes |
 | `src/dictionary.js` | validates and normalizes browser-local personal words |

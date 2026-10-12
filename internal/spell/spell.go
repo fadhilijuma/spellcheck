@@ -15,7 +15,7 @@ import (
 	symspell "github.com/eskriett/spell"
 )
 
-// Config controls suggestion count, edit distance and deletion-index size.
+// Config controls suggestion count, edit distance and index size.
 type Config struct {
 	MaxSuggestions int
 	MaxDistance    uint32
@@ -94,6 +94,9 @@ func (c *Checker) Check(ctx context.Context, words []Word) ([]Result, error) {
 	for _, w := range words {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("check words: %w", err)
+		}
+		if w.value == "" {
+			return nil, errors.New("check word: word is empty")
 		}
 
 		r, err := c.check(w)

@@ -2,6 +2,65 @@ import { expect, test } from '@playwright/test';
 
 const cases = [
   {
+    name: 'real API checking respects configured word-count and UTF-8 byte limits',
+    async run(page, editor) {
+      const limits = await page.request.get('/v1/config').then(response => response.json());
+      const batches = [];
+      page.on('request', request => {
+        if (request.method() === 'POST' && request.url().endsWith('/v1/check')) {
+          const body = request.postData();
+          expect(Buffer.byteLength(body)).toBeLessThanOrEqual(limits.maxBodyBytes);
+          const { words } = JSON.parse(body);
+          expect(words.length).toBeLessThanOrEqual(limits.maxWords);
+          batches.push(words);
+        }
+      });
+      const words = ['teh', 'speling', 'recieve', 'definately', '𐐀'.repeat(limits.maxWordLen), '𐐀'.repeat(limits.maxWordLen - 1), 'z'.repeat(limits.maxWordLen)];
+      await editor.fill(words.join(' '));
+      await expect(page.locator('.spelling-mark')).toHaveText(words);
+      expect(batches.flat()).toEqual(words);
+      expect(batches.length).toBeGreaterThan(1);
+      await expect(editor).toHaveValue(words.join(' '));
+    },
+  },
+  {
+    name: 'configured word length governs checking and personal dictionary acceptance',
+    async run(page, editor) {
+      const limit = Number(process.env.SPELL_MAX_WORD_LEN || 80);
+      const word = 'z'.repeat(limit);
+      await editor.fill(`${word} ${word}z`);
+      await expect(page.locator('.spelling-mark')).toHaveText([word]);
+      await expect(page.getByText(`1 word was not checked: maximum ${limit} characters per word.`)).toBeVisible();
+      await editor.focus();
+      await editor.evaluate(element => element.setSelectionRange(1, 1));
+      await editor.press('Alt+ArrowDown');
+      await page.getByRole('dialog').getByRole('button', { name: 'Add to dictionary', exact: true }).click();
+      await expect(page.locator('.spelling-mark')).toHaveCount(0);
+      await page.reload();
+      await editor.fill(word);
+      await expect(page.getByRole('status')).toHaveText('All clear');
+      await page.getByRole('button', { name: 'Dictionary', exact: true }).click();
+      await page.getByRole('button', { name: `Remove ${word}`, exact: true }).click();
+      await expect(page.locator('.spelling-mark')).toHaveText([word]);
+    },
+  },
+  {
+    name: 'saved language does not bypass loading server input limits',
+    async run(page, editor) {
+      await page.evaluate(() => localStorage.setItem('spellcheck.language', 'en-GB'));
+      await page.route('**/v1/config', route => route.abort());
+      await page.reload();
+      await editor.fill('speling');
+      await expect(page.getByRole('status')).toHaveText('Check unavailable');
+      await expect(page.getByRole('combobox', { name: 'English convention' })).toBeDisabled();
+      await expect(page.locator('.spelling-mark')).toHaveCount(0);
+      await page.unroute('**/v1/config');
+      await page.getByRole('button', { name: 'Retry check' }).click();
+      await expect(page.getByRole('combobox', { name: 'English convention' })).toHaveValue('en-GB');
+      await expect(page.locator('.spelling-mark')).toHaveText(['speling']);
+    },
+  },
+  {
     name: 'configuration failure preserves typing and retries against the real API',
     async run(page, editor) {
       await page.route('**/v1/config', route => route.abort());

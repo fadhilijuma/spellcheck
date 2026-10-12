@@ -26,7 +26,7 @@ the browser remembers your choice and rechecks the current draft when it changes
 
 ## Installation
 
-Requires Go 1.26+ (toolchain pinned in `go.mod`), Node 22.12+ and Make.
+Requires Go 1.27.2+ (minimum version in `go.mod`), Node 22.12+ and Make.
 Race tests also require a C compiler. From the checkout root:
 
 ```bash
@@ -143,7 +143,7 @@ optimal string alignment distance; `ardanlabs/conf` provides configuration.
 | Method | Endpoint | Response |
 |---|---|---|
 | POST | `/v1/check` | Misspelled words and suggestions |
-| GET | `/v1/config` | Configured default English convention |
+| GET | `/v1/config` | Default English convention, word length, word count and body-byte limits |
 | GET | `/v1/liveness` | 200, process and build details |
 | GET | `/v1/readiness` | 204, ready to accept traffic |
 
@@ -171,8 +171,8 @@ Handler errors use `{"error":"..."}`. Routing errors (404/405) use
 
 | Status | Condition |
 |---|---|
-| 400 | Invalid JSON, unknown fields, unsupported language, invalid word or word count outside 1–500 |
-| 413 | Body exceeds 129,564 bytes |
+| 400 | Invalid JSON, unknown fields, unsupported language, invalid word or word count outside 1–`MaxWords` |
+| 413 | Body exceeds `MaxBodyBytes` |
 | 404 | Unknown path |
 | 405 | Unsupported method; includes `Allow` |
 | 500 | Unexpected server error; details are logged, not returned |
@@ -184,6 +184,9 @@ Run `go run ./cmd/spellcheck -h` for flags. Environment variables:
 | Variable | Default | Purpose |
 |---|---|---|
 | `SPELL_DEFAULT_LANGUAGE` | `en-US` | Default English convention: `en-US` or `en-GB` |
+| `SPELL_MAX_WORD_LEN` | `64` | Maximum input length in Unicode code points; must be positive |
+| `SPELL_MAX_WORDS` | `500` | Maximum words per request; must be positive |
+| `SPELL_MAX_BODY_BYTES` | `385564` | Maximum JSON request-body bytes; must be positive |
 | `SPELL_MAX_SUGGESTIONS` | `5` | Maximum suggestions per word; must be positive |
 | `SPELL_MAX_DISTANCE` | `2` | Maximum edits; `0` allows exact matches only |
 | `SPELL_PREFIX_LENGTH` | `7` | Indexed runes per word; must exceed maximum distance |
@@ -200,14 +203,28 @@ container setups use a same-origin proxy, so CORS is off by default.
 Set British English with `SPELL_DEFAULT_LANGUAGE=en-GB make run` or
 `go run ./cmd/spellcheck --default-language=en-GB`. Unsupported values fail startup.
 The container setup also accepts `SPELL_DEFAULT_LANGUAGE`.
-The editor reads `/v1/config` for its initial selection; an explicitly saved
-user choice takes precedence. Both dictionaries remain available for switching.
+The editor reads `/v1/config` for its initial selection and request limits,
+including when a language preference is saved. An explicitly saved user choice
+takes precedence over the default language. Both dictionaries remain available
+for switching.
 
 Spelling settings apply to both checkers at startup, including in containers.
 For example, `go run ./cmd/spellcheck --max-suggestions=3 --max-distance=1 --prefix-length=5`.
+Set the input length with `SPELL_MAX_WORD_LEN=80 make run` or
+`go run ./cmd/spellcheck --max-word-len=80`; Compose accepts the same variable.
+Reducing this limit does not truncate the embedded dictionaries or delete
+previously accepted personal words.
+Set request limits with `go run ./cmd/spellcheck --max-words=100 --max-body-bytes=65536`
+or the corresponding environment variables; Compose accepts both. The body
+budget is independent of word length and includes the complete encoded JSON.
 Invalid limits fail startup. A larger edit distance increases index-building
 work and memory usage; longer indexed prefixes also increase index size.
 Prefix length limits candidate indexing, not the whole-word distance check.
+
+The API constructor validates request limits once. Word parsing enforces the
+length and syntax of each submitted word; the checker consumes those validated
+words without counting their length again. The editor validates configuration
+when fetched, not on every typing check.
 
 The frontend uses `/v1` by default. `SPELL_API_PROXY` changes the development
 proxy target; `VITE_SERVICE_API` changes the API base at frontend build time.
@@ -218,7 +235,8 @@ proxy target; `VITE_SERVICE_API` changes the API base at frontend build time.
 - Embedded dictionaries: 107,901 US words and 107,555 British words.
   No grammar or real-word errors.
 - Hyphens split words; apostrophes remain inside words. Numbers, URLs and
-  emails are skipped by the editor. The API accepts words of up to 64 runes.
+  emails are skipped by the editor. The API accepts words up to the configured
+  `SPELL_MAX_WORD_LEN` (64 Unicode code points by default).
 - `languages/acronyms.txt` contains one known uppercase acronym per line,
   shared by both dictionaries. Acronyms are accepted as written and are not
   added to correction candidates. Unlisted uppercase words are still checked;
@@ -234,8 +252,11 @@ proxy target; `VITE_SERVICE_API` changes the API base at frontend build time.
   Personal words filter spelling warnings locally; they do not change the
   embedded dictionaries or the API's suggestions. Draft words are still sent
   to the configured spelling API.
-- Requests contain 1–500 words and at most 129,564 bytes. The editor sends
-  deduplicated batches of 200 words.
+- Requests contain 1–`MaxWords` words (500 by default), within `MaxBodyBytes`
+  (385,564 by default, preserving the previous default budget). The editor
+  deduplicates words and sizes batches against both limits using actual UTF-8
+  JSON bytes. Words above `MaxWordLen` are reported as unchecked. A word that
+  cannot fit the body budget reports **Check unavailable**, never **All clear**.
 - No accounts, server-side personal dictionaries, saved drafts, metrics or per-client
   rate limiting. Writing is sent only to the configured spelling API.
 - Cancellation is checked between spelling lookups. An active library lookup
@@ -249,6 +270,7 @@ capacity or spelling-accuracy measurements.
 
 ```bash
 go test -run '^$' -bench '^BenchmarkCheck$' -benchmem -count=10 ./internal/spell
+go test -run '^$' -bench '^BenchmarkParseWord$' -benchmem -count=10 ./internal/spell
 ```
 
 ## Improvements with More Time

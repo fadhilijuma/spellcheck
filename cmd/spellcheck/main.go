@@ -39,6 +39,9 @@ func run(ctx context.Context, log *slog.Logger) error {
 	cfg := struct {
 		conf.Version
 		DefaultLanguage spell.Language `conf:"default:en-US"`
+		MaxWordLen      int            `conf:"default:64"`
+		MaxWords        int            `conf:"default:500"`
+		MaxBodyBytes    int64          `conf:"default:385564"`
 		MaxSuggestions  int            `conf:"default:5"`
 		MaxDistance     uint32         `conf:"default:2"`
 		PrefixLength    uint32         `conf:"default:7"`
@@ -51,10 +54,8 @@ func run(ctx context.Context, log *slog.Logger) error {
 			CORSAllowedOrigins []string      // empty: CORS off; the editor is served through a /v1 proxy
 		}
 	}{
-		Version: conf.Version{
-			Build: tag,
-			Desc:  "Spellcheck API",
-		},
+		Build: tag,
+		Desc:  "Spellcheck API",
 	}
 
 	const prefix = "SPELL"
@@ -107,7 +108,11 @@ func run(ctx context.Context, log *slog.Logger) error {
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(shutdown)
 
-	handler := httpapi.New(log, cfg.DefaultLanguage, cfg.Build, cfg.Web.CORSAllowedOrigins, checkers)
+	handler, err := httpapi.New(log, cfg.DefaultLanguage, cfg.Build, cfg.Web.CORSAllowedOrigins,
+		cfg.MaxWordLen, cfg.MaxWords, cfg.MaxBodyBytes, checkers)
+	if err != nil {
+		return fmt.Errorf("initialize API: %w", err)
+	}
 
 	api := http.Server{
 		Addr:         cfg.Web.APIHost,

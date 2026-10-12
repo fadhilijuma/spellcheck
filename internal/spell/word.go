@@ -6,9 +6,6 @@ import (
 	"unicode/utf8"
 )
 
-// MaxWordLen is the longest word, in runes, that ParseWord accepts.
-const MaxWordLen = 64
-
 // Word is a validated word as the user typed it; case is preserved.
 type Word struct {
 	value string
@@ -19,22 +16,35 @@ func (w Word) String() string {
 	return w.value
 }
 
-// ParseWord returns a Word if value is 1 to MaxWordLen runes of letters, with
+// ParseWord returns a Word if value is 1 to maxWordLen runes of letters, with
 // apostrophes (' or ’) allowed only between letters.
-func ParseWord(value string) (Word, error) {
+func ParseWord(value string, maxWordLen int) (Word, error) {
 	n := utf8.RuneCountInString(value)
-	if n == 0 || n > MaxWordLen {
-		return Word{}, fmt.Errorf("invalid word %q: length must be 1 to %d", value, MaxWordLen)
+	if n == 0 || n > maxWordLen {
+		return Word{}, fmt.Errorf("invalid word %q: length must be 1 to %d", value, maxWordLen)
 	}
+	return parseWord(value)
+}
 
-	runes := []rune(value)
-	for i, r := range runes {
-		switch {
-		case unicode.IsLetter(r):
-		case isApostrophe(r) && i > 0 && i < len(runes)-1 && unicode.IsLetter(runes[i-1]) && unicode.IsLetter(runes[i+1]):
-		default:
-			return Word{}, fmt.Errorf("invalid word %q: unexpected %q", value, r)
+// parseWord validates spelling-list syntax independently of the input limit.
+func parseWord(value string) (Word, error) {
+	if value == "" {
+		return Word{}, fmt.Errorf("invalid word %q: word is empty", value)
+	}
+	previousLetter := false
+	for i, r := range value {
+		if unicode.IsLetter(r) {
+			previousLetter = true
+			continue
 		}
+		if isApostrophe(r) && previousLetter {
+			next, _ := utf8.DecodeRuneInString(value[i+utf8.RuneLen(r):])
+			if unicode.IsLetter(next) {
+				previousLetter = false
+				continue
+			}
+		}
+		return Word{}, fmt.Errorf("invalid word %q: unexpected %q", value, r)
 	}
 
 	return Word{value}, nil

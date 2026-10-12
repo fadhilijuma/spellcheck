@@ -110,7 +110,7 @@ func parseWordList(text string, withCounts bool) ([]entry, error) {
 			}
 		}
 
-		w, err := ParseWord(value)
+		w, err := parseWord(value)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: parse word: %w", n, err)
 		}

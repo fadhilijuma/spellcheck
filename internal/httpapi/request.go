@@ -6,16 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"unicode/utf8"
 
 	"github.com/fadhilijuma/spellcheck/internal/spell"
-)
-
-// Limits on one POST /v1/check. The body limit is a generous bound: room for
-// maxWords words of spell.MaxWordLen 4-byte runes, quoted and comma-separated.
-const (
-	maxWords     = 500
-	maxBodyBytes = maxWords*(spell.MaxWordLen*utf8.UTFMax+3) + 64
 )
 
 // checkRequest is the body of POST /v1/check.
@@ -24,9 +16,9 @@ type checkRequest struct {
 	Language string   `json:"language"`
 }
 
-// decodeCheck reads exactly one JSON object of at most maxBodyBytes with no
+// decodeCheck reads exactly one size-bounded JSON object with no
 // unknown fields. Decoder errors retain their original cause with context.
-func decodeCheck(w http.ResponseWriter, r *http.Request) (checkRequest, error) {
+func decodeCheck(w http.ResponseWriter, r *http.Request, maxBodyBytes int64) (checkRequest, error) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
 
@@ -46,7 +38,7 @@ func decodeCheck(w http.ResponseWriter, r *http.Request) (checkRequest, error) {
 }
 
 // toWords validates the request and parses its words.
-func toWords(req checkRequest) ([]spell.Word, error) {
+func toWords(req checkRequest, maxWordLen, maxWords int) ([]spell.Word, error) {
 	switch {
 	case len(req.Words) == 0:
 		return nil, errors.New("words: at least 1 required")
@@ -56,7 +48,7 @@ func toWords(req checkRequest) ([]spell.Word, error) {
 
 	words := make([]spell.Word, 0, len(req.Words))
 	for i, s := range req.Words {
-		w, err := spell.ParseWord(s)
+		w, err := spell.ParseWord(s, maxWordLen)
 		if err != nil {
 			return nil, fmt.Errorf("words[%d]: %w", i, err)
 		}

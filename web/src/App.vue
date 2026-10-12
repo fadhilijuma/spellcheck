@@ -4,10 +4,11 @@ import WritingEditor from './components/WritingEditor.vue';
 import { createSession } from './session.js';
 import { replaceWord } from './tokenize.js';
 import { personalWord, parsePersonalWords } from './dictionary.js';
-import { getDefaultLanguage } from './api.js';
+import { getConfiguration } from './api.js';
 
 const text = ref('');
 const language = ref('');
+const configuration = ref(null);
 const personalWords = ref([]);
 const dictionaryOpen = ref(false);
 const storageAvailable = ref(true);
@@ -35,18 +36,22 @@ const status = computed(() => {
 });
 
 function recheck() {
-  if (!language.value) return;
-  session.update(text.value, { composing, language: language.value });
+  if (!configuration.value) return;
+  session.update(text.value, { ...configuration.value, composing, language: language.value });
 }
 
-async function loadLanguage() {
+async function loadConfiguration() {
   configurationRequest?.abort();
   const request = new AbortController();
   configurationRequest = request;
   const deadline = setTimeout(() => request.abort(), 10000);
   state.value = { phase: 'checking', issues: [], skipped: 0 };
   try {
-    language.value = await getDefaultLanguage({ signal: request.signal });
+    const data = await getConfiguration({ signal: request.signal });
+    if (configurationRequest !== request) return;
+    configuration.value = data;
+    if (!language.value) language.value = data.defaultLanguage;
+    recheck();
   } catch {
     if (configurationRequest === request) state.value = { phase: 'offline', issues: [], skipped: 0 };
   } finally {
@@ -76,7 +81,7 @@ watch(personalWords, words => {
 
 function acceptWord(word) {
   if (!issues.value.some(issue => issue.word === word)) return;
-  const value = personalWord(word);
+  const value = personalWord(word, configuration.value.maxWordLen);
   if (value && !acceptedWords.value.has(value)) personalWords.value = [...personalWords.value, value];
 }
 
@@ -114,7 +119,7 @@ function example() {
 }
 
 onMounted(() => {
-  if (!language.value) loadLanguage();
+  loadConfiguration();
 });
 
 onBeforeUnmount(() => {
@@ -135,7 +140,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="header-meta">
             <label for="english-language" class="sr-only">English convention</label>
-            <select id="english-language" v-model="language" class="language-select" :disabled="!language" @change="saveLanguage">
+            <select id="english-language" v-model="language" class="language-select" :disabled="!configuration" @change="saveLanguage">
               <option v-if="!language" value="" disabled>English</option>
               <option value="en-US">English (US)</option>
               <option value="en-GB">English (UK)</option>
@@ -181,9 +186,9 @@ onBeforeUnmount(() => {
             </section>
           </section>
 
-          <v-btn v-if="state.phase === 'offline'" size="small" variant="text" @click="language ? recheck() : loadLanguage()">Retry check</v-btn>
+          <v-btn v-if="state.phase === 'offline'" size="small" variant="text" @click="configuration ? recheck() : loadConfiguration()">Retry check</v-btn>
           <p v-if="state.skipped" class="skipped-notice" role="status">
-            {{ state.skipped }} {{ state.skipped === 1 ? 'word was' : 'words were' }} not checked: maximum 64 characters per word.
+            {{ state.skipped }} {{ state.skipped === 1 ? 'word was' : 'words were' }} not checked: maximum {{ configuration.maxWordLen }} characters per word.
           </p>
 
       </main>

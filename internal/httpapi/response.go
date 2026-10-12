@@ -12,9 +12,12 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-// configurationResponse contains the initial editor convention.
+// configurationResponse contains the editor convention and request limits.
 type configurationResponse struct {
 	DefaultLanguage spell.Language `json:"defaultLanguage"`
+	MaxWordLen      int            `json:"maxWordLen"`
+	MaxWords        int            `json:"maxWords"`
+	MaxBodyBytes    int64          `json:"maxBodyBytes"`
 }
 
 // misspelling is a misspelled word and its suggestions.

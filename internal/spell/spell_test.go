@@ -32,6 +32,29 @@ func Test_Config(t *testing.T) {
 	const dictionary = "cat 5\ncar 9\ncap 9\ncan 1\ncab 3\ncad 2\ncaw 4\n"
 	table := []Table{
 		{
+			Name: "zero-word", ExpResp: `check word: word is empty`, CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				checker, err := New(dictionary, testConfig)
+				if err == nil {
+					_, err = checker.Check(ctx, []Word{{}})
+				}
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			},
+		},
+		{
+			Name: "parser-enforces-word-limit", ExpResp: `invalid word "cats": length must be 1 to 3`, CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				_, err := ParseWord("cats", 3)
+				if err != nil {
+					return err.Error()
+				}
+				return ""
+			},
+		},
+		{
 			Name:    "invalid-dictionary-context",
 			ExpResp: `build checker: parse dictionary: line 1: parse count: strconv.ParseUint: parsing "ten": invalid syntax`,
 			ExcFunc: func(ctx context.Context) any {
@@ -131,6 +154,17 @@ func Test_EnglishConfig(t *testing.T) {
 	t.Parallel()
 
 	table := []Table{
+		{
+			Name: "loads-both-dictionaries-and-acronyms", ExpResp: true, CmpFunc: cmpDiff,
+			ExcFunc: func(context.Context) any {
+				for _, language := range []Language{EnglishUS, EnglishGB} {
+					if _, err := NewEnglish(language, testConfig); err != nil {
+						return err.Error()
+					}
+				}
+				return true
+			},
+		},
 		{
 			Name: "unsupported-language-context", ExpResp: `parse language: language "fr-FR": expected en-US or en-GB`, CmpFunc: cmpDiff,
 			ExcFunc: func(context.Context) any {
@@ -505,7 +539,7 @@ func BenchmarkCheck(b *testing.B) {
 	}
 
 	for _, tt := range tests {
-		w, err := ParseWord(tt.word)
+		w, err := ParseWord(tt.word, 64)
 		if err != nil {
 			b.Fatalf("Should be able to parse %q : %s", tt.word, err)
 		}
@@ -575,7 +609,7 @@ func checkConfigured(ctx context.Context, cfg Config, dict string, words ...stri
 func checkWords(ctx context.Context, c *Checker, words ...string) any {
 	parsed := make([]Word, len(words))
 	for i, s := range words {
-		w, err := ParseWord(s)
+		w, err := ParseWord(s, 64)
 		if err != nil {
 			return err.Error()
 		}

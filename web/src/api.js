@@ -2,24 +2,46 @@ import { tokenize } from './tokenize.js';
 
 const api = (import.meta.env?.VITE_SERVICE_API || '/v1').replace(/\/$/, '');
 
-export async function getDefaultLanguage({ signal, fetcher = fetch } = {}) {
+export async function getConfiguration({ signal, fetcher = fetch } = {}) {
   const response = await fetcher(`${api}/config`, { signal });
   if (!response.ok) throw new Error('Spellcheck unavailable');
   const data = await response.json();
   signal?.throwIfAborted();
   if (!['en-US', 'en-GB'].includes(data?.defaultLanguage)) throw new Error('Invalid configuration response');
-  return data.defaultLanguage;
+  for (const field of ['maxWordLen', 'maxWords', 'maxBodyBytes']) {
+    if (!Number.isSafeInteger(data[field]) || data[field] <= 0) throw new Error('Invalid configuration response');
+  }
+  return { defaultLanguage: data.defaultLanguage, maxWordLen: data.maxWordLen, maxWords: data.maxWords, maxBodyBytes: data.maxBodyBytes };
 }
 
-export async function checkDocument(text, { signal, fetcher = fetch, language } = {}) {
+// Request limits come from getConfiguration, validated once when loaded.
+export async function checkDocument(text, { signal, fetcher = fetch, language, maxWordLen, maxWords, maxBodyBytes } = {}) {
+	signal?.throwIfAborted();
   const words = [...new Set(tokenize(text).map(token => token.word))];
-  const skipped = new Set(words.filter(word => [...word].length > 64));
-  const allowed = words.filter(word => !skipped.has(word));
+  const allowed = [];
+  let skipped = 0;
+  for (const word of words) {
+    if ([...word].length > maxWordLen) skipped++;
+    else allowed.push(word);
+  }
   const issues = new Map();
-  // Batches of 200 stay well inside the 500-word request limit.
-  for (let offset = 0; offset < allowed.length; offset += 200) {
+  const encoder = new TextEncoder();
+  const envelopeBytes = encoder.encode(JSON.stringify({ words: [], language })).length;
+  let offset = 0;
+  while (offset < allowed.length) {
     signal?.throwIfAborted();
-    const batch = allowed.slice(offset, offset + 200);
+    const batch = [];
+    let bytes = envelopeBytes;
+    // Track encoded-word bytes plus the commas between words.
+    while (offset < allowed.length && batch.length < maxWords) {
+      const word = allowed[offset];
+      const wordBytes = encoder.encode(JSON.stringify(word)).length + (batch.length ? 1 : 0);
+      if (bytes + wordBytes > maxBodyBytes) break;
+      batch.push(word);
+      bytes += wordBytes;
+      offset++;
+    }
+    if (!batch.length) throw new Error('Word exceeds request-body limit');
     const response = await fetcher(`${api}/check`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -30,12 +52,13 @@ export async function checkDocument(text, { signal, fetcher = fetch, language } 
     const data = await response.json();
     signal?.throwIfAborted();
     if (!data || !Array.isArray(data.misspelled)) throw new Error('Invalid spelling response');
+    const sent = new Set(batch);
     for (const issue of data.misspelled) {
-      const knownWord = issue && batch.includes(issue.word);
+      const knownWord = issue && sent.has(issue.word);
       const suggestions = Array.isArray(issue?.suggestions) && issue.suggestions.every(value => typeof value === 'string');
       if (!knownWord || !suggestions) throw new Error('Invalid spelling response');
       issues.set(issue.word, { word: issue.word, suggestions: issue.suggestions });
     }
   }
-  return { issues: [...issues.values()], skipped: skipped.size };
+  return { issues: [...issues.values()], skipped };
 }
