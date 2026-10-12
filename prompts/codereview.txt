@@ -1,0 +1,34 @@
+Review the requested Spellcheck change without modifying files.
+
+Read AGENTS.md, README.md and prompts/project-structure.md first. Load the
+relevant installed skills. Inspect complete functions and their callers, not
+only changed lines. Use the diff range I provide; otherwise review the current
+code and state that scope. Do not invent a PR or change history.
+
+Check cmd/spellcheck/main.go for configuration, startup-built dictionaries,
+HTTP wiring and shutdown. Check internal/spell for validated words, language
+selection, acronym handling and deterministic suggestions. Check internal/httpapi
+for request limits, JSON decoding, cancellation and error responses. Follow
+web/src from typing through batching, responses, inline correction and Undo.
+
+Look for dictionary indexes rebuilt per request, unsafe mutation of shared
+checkers, duplicate boundary validation, incorrect US/British selection,
+unchecked uppercase typos, unstable ranking and incorrect apostrophe handling.
+Verify that prefix indexing does not truncate full-word distance checks.
+
+Look for stale checks after typing or switching language, unbounded requests,
+incorrect encoded-byte batching, invalid API responses accepted as success,
+lost caret/selection, broken Undo, inaccessible correction controls and
+composition events checked before completion. Failed or incomplete checks must
+not say All clear. Accepted words must match whole words across both variants;
+browser storage must never contain drafts. Do not log request words.
+
+Compare Go tests with adjacent []Table/run/cmpDiff cases. Require focused domain,
+HTTP and editor regression coverage; do not add main.go tests or generic test
+frameworks. Verify README against implementation and use go.mod's Go version
+for modern idioms. Avoid speculative layers, dependencies and per-word workers.
+
+Report actionable findings in severity order with file/line references, the
+observable failure and the smallest justified correction. Separate confirmed
+bugs from design suggestions. State which checks ran and what remains untested.
+Do not edit, commit, push or change repository access during this review.

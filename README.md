@@ -15,6 +15,7 @@ the browser remembers your choice and rechecks the current draft when it changes
 - [Running the Project](#running-the-project)
 - [Decisions and Tradeoffs](#decisions-and-tradeoffs)
 - [Agent Skills](#agent-skills)
+- [Prompts](#prompts)
 - [Verification](#verification)
 - [Structure](#structure)
 - [API](#api)
@@ -105,6 +106,29 @@ Use review-pr to review internal/httpapi and web/src. Report findings; do not ed
 
 For an existing PR or Git checkout, name the PR or diff range. Without Git
 metadata, specify files; the agent must not invent a diff or PR history.
+
+## Prompts
+
+Reusable task prompts live in [prompts/](prompts). Read `AGENTS.md` first,
+then load the architecture guide and the prompt for the task.
+
+- [codereview.txt](prompts/codereview.txt) — read-only review of spelling,
+  HTTP contracts, editor behavior, tests and error handling.
+- [example_project.txt](prompts/example_project.txt) — build or extend the API
+  and editor with the established entry-point and package design.
+- [newdomain.txt](prompts/newdomain.txt) — implement a spelling rule using
+  concrete domain models and the existing validation boundaries.
+- [project-structure.md](prompts/project-structure.md) — package responsibilities,
+  index lifecycle, request flow, editor interactions and verification.
+
+```text
+Read AGENTS.md and prompts/project-structure.md.
+Use prompts/codereview.txt to review the current spelling API and editor. Do not edit.
+```
+
+The four filenames match the [reference prompt set](https://github.com/ardanlabs/service/tree/007e502c948bb6ced690ab4f0744da6aeb626a05/zarf/prompts).
+Their contents are rewritten for Spellcheck; database and deployment scaffolding
+from that reference do not apply here.
 
 ## Verification
 

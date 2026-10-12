@@ -1,0 +1,50 @@
+Implement the spelling behavior I specify within the existing package boundaries.
+
+Read AGENTS.md, README.md and prompts/project-structure.md. Inspect spell.go,
+word.go, dict.go and relevant HTTP/editor callers before deciding where the
+change belongs. State the rule and why its owning package is right. Extend
+internal/spell for spelling rules, internal/httpapi for transport behavior, or
+web/src for writing interactions. Do not create a new domain or service scaffold.
+
+Preserve these models unless the requested behavior needs an explained contract
+change. Read actual declarations and comments; these shapes are reference
+material, not instructions to duplicate types.
+
+type Word struct {
+    value string
+}
+
+type Language string
+
+type Config struct {
+    MaxSuggestions int
+    MaxDistance    uint32
+    PrefixLength   uint32
+}
+
+type Result struct {
+    Word        Word
+    Valid       bool
+    Suggestions []Word
+}
+
+Use ParseWord at the request boundary and ParseLanguage for language values.
+Resolve an omitted request language to the configured default. Reject a zero
+Word where needed; do not repeat syntax/length validation after parsing. Index
+settings are validated at construction; never rebuild or mutate a live checker.
+Keep NewEnglish and New returning *Checker and Check returning []Result, error.
+Do not replace domain values with arbitrary maps, callback iterators or any.
+
+Keep US/British dictionaries separate and the curated acronym allowlist shared.
+Do not hand-edit generated dictionary files or accept all uppercase strings as
+acronyms. Reuse the common word-list parser. Suggestions use the existing
+SymSpell/optimal-string-alignment implementation, with deterministic ranking
+and case preservation. Document a requested change to those rules explicitly.
+
+First add a meaningful failing table-driven case beside the owning Go package,
+using its existing helpers. Add frontend regression cases for changed editor
+behavior. Implement the smallest correction with contextual error causes, then
+run make check. Preserve API status/redaction and cancellation behavior. Update
+README only where behavior or tradeoffs change. Do not add entry-point tests,
+database stores, grammar rules, server-side personal dictionaries or speculative
+abstractions. Follow the go approval rule for cross-package/API changes.

@@ -1,0 +1,48 @@
+Build or extend Spellcheck in the directory I specify. Read the assignment,
+AGENTS.md, README.md and prompts/project-structure.md before proposing changes.
+Preserve existing work, package layout and contracts. Implement the requested
+behavior rather than recreating the application or importing another layout.
+
+Use the existing Go JSON API and Vue/Vuetify editor. The editor checks spelling
+automatically after typing pauses; there is no submit button. Corrections belong
+in the flagged word's hover, tap or keyboard popup, not a separate suggestions
+panel. Keep the interface focused, without promotional copy or extra features.
+
+Keep cmd/spellcheck/main.go for main and run(ctx context.Context,
+log *slog.Logger) error. Main creates the background context and stdout JSON
+logger; on failure it calls log.Error("run", "err", err) and os.Exit(1).
+Keep run's sections in order: Configuration, App Starting, Load the dictionaries,
+Start API Service, Shutdown. Use ardanlabs/conf/v3 with the existing anonymous
+config and conf.Version. Keep user-facing defaults there and pass values down.
+Use stage separators only in main.go. Do not add a debug service.
+
+Use internal/spell for Word, Language, Checker and spelling-list parsing. Embed
+US/British lists and the shared acronym allowlist directly. Build one SymSpell
+index per language at startup, then reuse read-only checkers on requests. Reuse
+eskriett/spell; do not implement edit distance or scan the whole dictionary.
+Preserve closest-distance, frequency-descending and alphabetical-tie ranking.
+
+Use internal/httpapi for routing, JSON validation and response translation.
+Pass the existing dependencies and settings directly to httpapi.New. Preserve
+/v1/config, /v1/check, /v1/liveness and /v1/readiness. Reject malformed, oversized
+and unsupported input at its owning boundary, with short contextual errors.
+Keep logging/redaction at the HTTP boundary, not in the spelling package.
+
+Use web/src for tokenization, configured-limit batching, cancellable sessions,
+inline corrections and browser-local preferences/accepted words. Honor both
+word-count and actual UTF-8 JSON-byte limits. Ignore stale responses, respect
+composition events and preserve selection and Undo. Personal words apply to
+both variants and remain removable. Never store drafts or render input as HTML.
+
+Return concrete domain values and errors. Keep types above functions and
+document important contracts. Do not add pass-through getters, one-implementation
+interfaces, config copies, frameworks or dependencies without a demonstrated
+need and approval. HTTP already handles concurrent requests; do not add workers
+per word. No accounts, database, grammar checking, telemetry or saved documents.
+
+For cross-package or API changes, list affected files and tests and wait for go.
+Add relevant failing regression cases first. Follow adjacent table-driven Go
+tests and existing frontend unit/browser tests. Run make check; exercise the
+actual browser when editor behavior changes. Update README where behavior or
+tradeoffs change. Report measured checks and limitations, not readiness claims
+based only on builds. Do not publish, commit or push unless explicitly asked.
