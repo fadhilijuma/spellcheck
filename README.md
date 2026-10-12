@@ -158,8 +158,9 @@ curl -sS http://localhost:3000/v1/check \
 ```
 
 Valid words are omitted; an all-valid request returns `{"misspelled":[]}`.
-Suggestions use the smallest available edit distance, up to two edits, then
-frequency descending with alphabetical ties. At most five are returned.
+Suggestions use the smallest available edit distance within the configured
+maximum, then frequency descending with alphabetical ties. Defaults are two
+edits and at most five suggestions per word.
 
 `language` accepts `en-US` or `en-GB`. Omitted or empty uses the configured default.
 British English uses traditional `-ise` spelling: `colour`, `centre`,
@@ -183,6 +184,9 @@ Run `go run ./cmd/spellcheck -h` for flags. Environment variables:
 | Variable | Default | Purpose |
 |---|---|---|
 | `SPELL_DEFAULT_LANGUAGE` | `en-US` | Default English convention: `en-US` or `en-GB` |
+| `SPELL_MAX_SUGGESTIONS` | `5` | Maximum suggestions per word; must be positive |
+| `SPELL_MAX_DISTANCE` | `2` | Maximum edits; `0` allows exact matches only |
+| `SPELL_PREFIX_LENGTH` | `7` | Indexed runes per word; must exceed maximum distance |
 | `SPELL_WEB_API_HOST` | `0.0.0.0:3000` | API listen address |
 | `SPELL_WEB_READ_TIMEOUT` | `5s` | HTTP read timeout |
 | `SPELL_WEB_WRITE_TIMEOUT` | `10s` | HTTP write timeout |
@@ -198,6 +202,12 @@ Set British English with `SPELL_DEFAULT_LANGUAGE=en-GB make run` or
 The container setup also accepts `SPELL_DEFAULT_LANGUAGE`.
 The editor reads `/v1/config` for its initial selection; an explicitly saved
 user choice takes precedence. Both dictionaries remain available for switching.
+
+Spelling settings apply to both checkers at startup, including in containers.
+For example, `go run ./cmd/spellcheck --max-suggestions=3 --max-distance=1 --prefix-length=5`.
+Invalid limits fail startup. A larger edit distance increases index-building
+work and memory usage; longer indexed prefixes also increase index size.
+Prefix length limits candidate indexing, not the whole-word distance check.
 
 The frontend uses `/v1` by default. `SPELL_API_PROXY` changes the development
 proxy target; `VITE_SERVICE_API` changes the API base at frontend build time.

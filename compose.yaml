@@ -7,6 +7,9 @@ services:
     image: localhost/spellcheck
     environment:
       SPELL_DEFAULT_LANGUAGE: ${SPELL_DEFAULT_LANGUAGE:-en-US}
+      SPELL_MAX_SUGGESTIONS: ${SPELL_MAX_SUGGESTIONS:-5}
+      SPELL_MAX_DISTANCE: ${SPELL_MAX_DISTANCE:-2}
+      SPELL_PREFIX_LENGTH: ${SPELL_PREFIX_LENGTH:-7}
     # The API is private; the editor reaches it through nginx.
     restart: unless-stopped
   web:

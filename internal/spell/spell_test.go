@@ -23,10 +23,137 @@ type Table struct {
 	CmpFunc func(got any, exp any) string
 }
 
+var testConfig = Config{MaxSuggestions: 5, MaxDistance: 2, PrefixLength: 7}
+
+func Test_Config(t *testing.T) {
+	t.Parallel()
+
+	const dictionary = "cat 5\ncar 9\ncap 9\ncan 1\ncab 3\ncad 2\ncaw 4\n"
+	table := []Table{
+		{
+			Name:    "smaller-suggestion-limit",
+			ExpResp: []result{{Word: "cax", Suggestions: []string{"cap", "car"}}},
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, Config{MaxSuggestions: 2, MaxDistance: 2, PrefixLength: 7}, dictionary, "cax")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "larger-suggestion-limit",
+			ExpResp: []result{{Word: "cax", Suggestions: []string{"cap", "car", "cat", "caw", "cab", "cad", "can"}}},
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, Config{MaxSuggestions: 7, MaxDistance: 2, PrefixLength: 7}, dictionary, "cax")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "distance-one-excludes-two-edits",
+			ExpResp: []result{{Word: "cat"}},
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, Config{MaxSuggestions: 5, MaxDistance: 1, PrefixLength: 7}, "coats 1\n", "cat")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "distance-zero-only-accepts-exact-words",
+			ExpResp: []result{{Word: "cat"}, {Word: "cats", Valid: true}},
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, Config{MaxSuggestions: 5, MaxDistance: 0, PrefixLength: 1}, "cats 1\n", "cat", "cats")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "distance-three-includes-three-edits",
+			ExpResp: []result{{Word: "cat", Suggestions: []string{"catsup"}}},
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, Config{MaxSuggestions: 5, MaxDistance: 3, PrefixLength: 7}, "catsup 1\n", "cat")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "configured-index-prefix",
+			ExpResp: uint32(3),
+			ExcFunc: func(context.Context) any {
+				checker, err := New("abcdefghij 1\n", Config{MaxSuggestions: 5, MaxDistance: 2, PrefixLength: 3})
+				if err != nil {
+					return err.Error()
+				}
+				return checker.index.PrefixLength
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "zero-suggestion-limit",
+			ExpResp: "max suggestions: must be positive",
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, Config{MaxSuggestions: 0, MaxDistance: 2, PrefixLength: 7}, dictionary, "cat")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "negative-suggestion-limit",
+			ExpResp: "max suggestions: must be positive",
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, Config{MaxSuggestions: -1, MaxDistance: 2, PrefixLength: 7}, dictionary, "cat")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "prefix-equals-distance",
+			ExpResp: "prefix length: must be greater than max distance",
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, Config{MaxSuggestions: 5, MaxDistance: 2, PrefixLength: 2}, dictionary, "cat")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "zero-prefix",
+			ExpResp: "prefix length: must be greater than max distance",
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, Config{MaxSuggestions: 5, MaxDistance: 0, PrefixLength: 0}, dictionary, "cat")
+			},
+			CmpFunc: cmpDiff,
+		},
+	}
+	run(t, table, "config")
+}
+
+func Test_EnglishConfig(t *testing.T) {
+	t.Parallel()
+
+	table := []Table{
+		{
+			Name:    "American-suggestion-limit",
+			ExpResp: []result{{Word: "teh", Suggestions: []string{"the"}}},
+			ExcFunc: func(ctx context.Context) any {
+				checker, err := NewEnglish(EnglishUS, Config{MaxSuggestions: 1, MaxDistance: 2, PrefixLength: 7})
+				if err != nil {
+					return err.Error()
+				}
+				return checkWords(ctx, checker, "teh")
+			},
+			CmpFunc: cmpDiff,
+		},
+		{
+			Name:    "British-suggestion-limit",
+			ExpResp: []result{{Word: "teh", Suggestions: []string{"the"}}},
+			ExcFunc: func(ctx context.Context) any {
+				checker, err := NewEnglish(EnglishGB, Config{MaxSuggestions: 1, MaxDistance: 2, PrefixLength: 7})
+				if err != nil {
+					return err.Error()
+				}
+				return checkWords(ctx, checker, "teh")
+			},
+			CmpFunc: cmpDiff,
+		},
+	}
+	run(t, table, "english-config")
+}
+
 func Test_Check(t *testing.T) {
 	t.Parallel()
 
-	c, err := New(testDict)
+	c, err := New(testDict, testConfig)
 	if err != nil {
 		t.Fatalf("Should be able to load the test dictionary : %s", err)
 	}
@@ -39,14 +166,14 @@ func Test_Check(t *testing.T) {
 func Test_CheckEnglish(t *testing.T) {
 	t.Parallel()
 
-	c, err := NewEnglish(EnglishUS)
+	c, err := NewEnglish(EnglishUS, testConfig)
 	if err != nil {
 		t.Fatalf("Should be able to load the default dictionary : %s", err)
 	}
 
 	run(t, checkEnglish(c), "check-english")
 
-	british, err := NewEnglish(EnglishGB)
+	british, err := NewEnglish(EnglishGB, testConfig)
 	if err != nil {
 		t.Fatalf("Should be able to load the British dictionary : %s", err)
 	}
@@ -326,7 +453,7 @@ func checkCancel(c *Checker) []Table {
 }
 
 func BenchmarkCheck(b *testing.B) {
-	c, err := NewEnglish(EnglishUS)
+	c, err := NewEnglish(EnglishUS, testConfig)
 	if err != nil {
 		b.Fatalf("Should be able to load the default dictionary : %s", err)
 	}
@@ -395,7 +522,11 @@ func cmpDiff(got any, exp any) string {
 // checkIn builds a Checker over dict and checks words with it; it returns
 // the results, or the error text.
 func checkIn(ctx context.Context, dict string, words ...string) any {
-	c, err := New(dict)
+	return checkConfigured(ctx, testConfig, dict, words...)
+}
+
+func checkConfigured(ctx context.Context, cfg Config, dict string, words ...string) any {
+	c, err := New(dict, cfg)
 	if err != nil {
 		return err.Error()
 	}

@@ -400,11 +400,12 @@ func cmpDiff(got any, exp any) string {
 func newServer(t *testing.T, defaultLanguage spell.Language) http.Handler {
 	t.Helper()
 
-	checker, err := spell.New(seedDict)
+	cfg := spell.Config{MaxSuggestions: 5, MaxDistance: 2, PrefixLength: 7}
+	checker, err := spell.New(seedDict, cfg)
 	if err != nil {
 		t.Fatalf("Should be able to load the seed dictionary : %s", err)
 	}
-	british, err := spell.New(strings.ReplaceAll(seedDict, "color", "colour"))
+	british, err := spell.New(strings.ReplaceAll(seedDict, "color", "colour"), cfg)
 	if err != nil {
 		t.Fatalf("Should be able to load the British seed dictionary : %s", err)
 	}

@@ -45,6 +45,9 @@ func run(ctx context.Context, log *slog.Logger) error {
 	cfg := struct {
 		conf.Version
 		DefaultLanguage spell.Language `conf:"default:en-US,help:Default English convention (en-US or en-GB)"`
+		MaxSuggestions  int            `conf:"default:5,help:Maximum suggestions per word"`
+		MaxDistance     uint32         `conf:"default:2,help:Maximum edits between input and suggestion"`
+		PrefixLength    uint32         `conf:"default:7,help:Runes indexed per word (greater than max distance)"`
 		Web             struct {
 			ReadTimeout        time.Duration `conf:"default:5s"`
 			WriteTimeout       time.Duration `conf:"default:10s"`
@@ -87,8 +90,13 @@ func run(ctx context.Context, log *slog.Logger) error {
 	log.Info("startup", "status", "loading dictionaries")
 
 	checkers := make(map[spell.Language]*spell.Checker)
+	checkerConfig := spell.Config{
+		MaxSuggestions: cfg.MaxSuggestions,
+		MaxDistance:    cfg.MaxDistance,
+		PrefixLength:   cfg.PrefixLength,
+	}
 	for _, language := range []spell.Language{spell.EnglishUS, spell.EnglishGB} {
-		checker, err := spell.NewEnglish(language)
+		checker, err := spell.NewEnglish(language, checkerConfig)
 		if err != nil {
 			return fmt.Errorf("load dictionary %s: %w", language, err)
 		}

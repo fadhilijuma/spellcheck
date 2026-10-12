@@ -5,6 +5,7 @@ package spell
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,15 +15,12 @@ import (
 	symspell "github.com/eskriett/spell"
 )
 
-const (
-	maxSuggestions = 5 // the most suggestions returned for one word
-	maxDistance    = 2 // the most edits between a word and a suggestion
-
-	// prefixLength is how many runes at the start of each word SymSpell
-	// indexes, its default. Longer words are still found: the distance check
-	// covers the whole word.
-	prefixLength = 7
-)
+// Config controls suggestion count, edit distance and deletion-index size.
+type Config struct {
+	MaxSuggestions int
+	MaxDistance    uint32
+	PrefixLength   uint32 // indexed runes; distance checks still cover the whole word
+}
 
 // Result is the outcome of checking one word.
 type Result struct {
@@ -35,12 +33,13 @@ type Result struct {
 // (github.com/eskriett/spell). It is read-only after construction and safe
 // for concurrent use.
 type Checker struct {
-	index    *symspell.Spell
-	acronyms map[string]struct{}
+	maxSuggestions int
+	index          *symspell.Spell
+	acronyms       map[string]struct{}
 }
 
 // NewEnglish builds a Checker over the selected embedded English dictionary.
-func NewEnglish(language Language) (*Checker, error) {
+func NewEnglish(language Language, cfg Config) (*Checker, error) {
 	language, err := ParseLanguage(string(language))
 	if err != nil {
 		return nil, err
@@ -49,7 +48,7 @@ func NewEnglish(language Language) (*Checker, error) {
 	if language == EnglishGB {
 		dict = britishEnglish
 	}
-	c, err := New(dict)
+	c, err := New(dict, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("load %s: %w", language, err)
 	}
@@ -61,15 +60,21 @@ func NewEnglish(language Language) (*Checker, error) {
 }
 
 // New builds a Checker over dict, made of "word count" lines.
-func New(dict string) (*Checker, error) {
+func New(dict string, cfg Config) (*Checker, error) {
+	if cfg.MaxSuggestions <= 0 {
+		return nil, errors.New("max suggestions: must be positive")
+	}
+	if cfg.PrefixLength <= cfg.MaxDistance {
+		return nil, errors.New("prefix length: must be greater than max distance")
+	}
 	entries, err := parseDictionary(dict)
 	if err != nil {
 		return nil, fmt.Errorf("dictionary: %w", err)
 	}
 
 	index := symspell.New()
-	index.MaxEditDistance = maxDistance
-	index.PrefixLength = prefixLength
+	index.MaxEditDistance = cfg.MaxDistance
+	index.PrefixLength = cfg.PrefixLength
 
 	for _, e := range entries {
 		_, err := index.AddEntry(symspell.Entry{Word: key(e.word), Frequency: e.count})
@@ -78,7 +83,7 @@ func New(dict string) (*Checker, error) {
 		}
 	}
 
-	return &Checker{index: index}, nil
+	return &Checker{maxSuggestions: cfg.MaxSuggestions, index: index}, nil
 }
 
 // Check checks each word and returns one Result per word, in input order.
@@ -126,8 +131,8 @@ func (c *Checker) check(w Word) (Result, error) {
 
 	// Suggestions are dictionary words, validated when the dictionary was
 	// loaded.
-	suggestions := make([]Word, 0, min(len(found), maxSuggestions))
-	for _, s := range found[:min(len(found), maxSuggestions)] {
+	suggestions := make([]Word, 0, min(len(found), c.maxSuggestions))
+	for _, s := range found[:min(len(found), c.maxSuggestions)] {
 		suggestions = append(suggestions, Word{value: matchCase(w.value, s.Word)})
 	}
 
@@ -136,7 +141,7 @@ func (c *Checker) check(w Word) (Result, error) {
 
 // byFrequency ranks suggestions most frequent first, then alphabetically.
 // They are all at the same edit distance: the closest one that has any
-// (1, then 2), as the lookup asks for.
+// within the configured maximum, as the lookup asks for.
 func byFrequency(list symspell.SuggestionList) {
 	slices.SortFunc(list, func(x, y symspell.Suggestion) int {
 		return cmp.Or(cmp.Compare(y.Frequency, x.Frequency), cmp.Compare(x.Word, y.Word))
