@@ -38,10 +38,10 @@ func run(ctx context.Context, log *slog.Logger) error {
 
 	cfg := struct {
 		conf.Version
-		DefaultLanguage spell.Language `conf:"default:en-US,help:Default English convention (en-US or en-GB)"`
-		MaxSuggestions  int            `conf:"default:5,help:Maximum suggestions per word"`
-		MaxDistance     uint32         `conf:"default:2,help:Maximum edits between input and suggestion"`
-		PrefixLength    uint32         `conf:"default:7,help:Runes indexed per word (greater than max distance)"`
+		DefaultLanguage spell.Language `conf:"default:en-US"`
+		MaxSuggestions  int            `conf:"default:5"`
+		MaxDistance     uint32         `conf:"default:2"`
+		PrefixLength    uint32         `conf:"default:7"`
 		Web             struct {
 			ReadTimeout        time.Duration `conf:"default:5s"`
 			WriteTimeout       time.Duration `conf:"default:10s"`
