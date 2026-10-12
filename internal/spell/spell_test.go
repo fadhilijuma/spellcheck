@@ -2,6 +2,7 @@ package spell
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -30,6 +31,14 @@ func Test_Config(t *testing.T) {
 
 	const dictionary = "cat 5\ncar 9\ncap 9\ncan 1\ncab 3\ncad 2\ncaw 4\n"
 	table := []Table{
+		{
+			Name:    "invalid-dictionary-context",
+			ExpResp: `build checker: parse dictionary: line 1: parse count: strconv.ParseUint: parsing "ten": invalid syntax`,
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, testConfig, "the ten\n", "the")
+			},
+			CmpFunc: cmpDiff,
+		},
 		{
 			Name:    "smaller-suggestion-limit",
 			ExpResp: []result{{Word: "cax", Suggestions: []string{"cap", "car"}}},
@@ -122,6 +131,16 @@ func Test_EnglishConfig(t *testing.T) {
 	t.Parallel()
 
 	table := []Table{
+		{
+			Name: "unsupported-language-context", ExpResp: `parse language: language "fr-FR": expected en-US or en-GB`, CmpFunc: cmpDiff,
+			ExcFunc: func(context.Context) any {
+				_, err := NewEnglish(Language("fr-FR"), testConfig)
+				if err == nil {
+					return nil
+				}
+				return err.Error()
+			},
+		},
 		{
 			Name:    "American-suggestion-limit",
 			ExpResp: []result{{Word: "teh", Suggestions: []string{"the"}}},
@@ -429,7 +448,7 @@ func checkCancel(c *Checker) []Table {
 	table := []Table{
 		{
 			Name:    "canceled",
-			ExpResp: "context canceled",
+			ExpResp: "check words: context canceled",
 			ExcFunc: func(ctx context.Context) any {
 				ctx, cancel := context.WithCancel(ctx)
 				cancel()
@@ -439,13 +458,31 @@ func checkCancel(c *Checker) []Table {
 		},
 		{
 			Name:    "deadline",
-			ExpResp: "context deadline exceeded",
+			ExpResp: "check words: context deadline exceeded",
 			ExcFunc: func(ctx context.Context) any {
 				ctx, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
 				defer cancel()
 				return checkWords(ctx, c, "teh")
 			},
 			CmpFunc: cmpDiff,
+		},
+		{
+			Name: "canceled-cause", ExpResp: true, CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				ctx, cancel := context.WithCancel(ctx)
+				cancel()
+				_, err := c.Check(ctx, []Word{{value: "teh"}})
+				return errors.Is(err, context.Canceled)
+			},
+		},
+		{
+			Name: "deadline-cause", ExpResp: true, CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				ctx, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer cancel()
+				_, err := c.Check(ctx, []Word{{value: "teh"}})
+				return errors.Is(err, context.DeadlineExceeded)
+			},
 		},
 	}
 

@@ -53,7 +53,7 @@ func ParseLanguage(value string) (Language, error) {
 func (language *Language) UnmarshalText(text []byte) error {
 	value, err := ParseLanguage(string(text))
 	if err != nil {
-		return err
+		return fmt.Errorf("parse language: %w", err)
 	}
 	*language = value
 	return nil
@@ -63,7 +63,7 @@ func (language *Language) UnmarshalText(text []byte) error {
 func parseAcronyms(text string) (map[string]struct{}, error) {
 	entries, err := parseWordList(text, false)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse acronyms: %w", err)
 	}
 	acronyms := make(map[string]struct{}, len(entries))
 	for _, e := range entries {
@@ -75,7 +75,11 @@ func parseAcronyms(text string) (map[string]struct{}, error) {
 // parseDictionary reads "word count" lines. Blank lines are skipped; any other
 // malformed line is an error that names its line number.
 func parseDictionary(text string) ([]entry, error) {
-	return parseWordList(text, true)
+	entries, err := parseWordList(text, true)
+	if err != nil {
+		return nil, fmt.Errorf("parse dictionary: %w", err)
+	}
+	return entries, nil
 }
 
 // parseWordList shares scanning and word validation. Dictionary lines have
@@ -102,13 +106,13 @@ func parseWordList(text string, withCounts bool) ([]entry, error) {
 			var err error
 			count, err = strconv.ParseUint(countStr, 10, 64)
 			if err != nil {
-				return nil, fmt.Errorf("line %d: invalid count %q", n, countStr)
+				return nil, fmt.Errorf("line %d: parse count: %w", n, err)
 			}
 		}
 
 		w, err := ParseWord(value)
 		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", n, err)
+			return nil, fmt.Errorf("line %d: parse word: %w", n, err)
 		}
 		if !withCounts && value != strings.ToUpper(value) {
 			return nil, fmt.Errorf("line %d: acronym %q must be uppercase", n, value)
@@ -118,7 +122,7 @@ func parseWordList(text string, withCounts bool) ([]entry, error) {
 	}
 
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("scan: %w", err)
+		return nil, fmt.Errorf("scan word list: %w", err)
 	}
 
 	return entries, nil

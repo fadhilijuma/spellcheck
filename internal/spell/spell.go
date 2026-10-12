@@ -42,7 +42,7 @@ type Checker struct {
 func NewEnglish(language Language, cfg Config) (*Checker, error) {
 	language, err := ParseLanguage(string(language))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse language: %w", err)
 	}
 	dict := americanEnglish
 	if language == EnglishGB {
@@ -50,11 +50,11 @@ func NewEnglish(language Language, cfg Config) (*Checker, error) {
 	}
 	c, err := New(dict, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("load %s: %w", language, err)
+		return nil, fmt.Errorf("load %s dictionary: %w", language, err)
 	}
 	c.acronyms, err = parseAcronyms(knownAcronyms)
 	if err != nil {
-		return nil, fmt.Errorf("acronyms: %w", err)
+		return nil, fmt.Errorf("load acronyms: %w", err)
 	}
 	return c, nil
 }
@@ -69,7 +69,7 @@ func New(dict string, cfg Config) (*Checker, error) {
 	}
 	entries, err := parseDictionary(dict)
 	if err != nil {
-		return nil, fmt.Errorf("dictionary: %w", err)
+		return nil, fmt.Errorf("build checker: %w", err)
 	}
 
 	index := symspell.New()
@@ -79,7 +79,7 @@ func New(dict string, cfg Config) (*Checker, error) {
 	for _, e := range entries {
 		_, err := index.AddEntry(symspell.Entry{Word: key(e.word), Frequency: e.count})
 		if err != nil {
-			return nil, fmt.Errorf("index %q: %w", e.word, err)
+			return nil, fmt.Errorf("add index entry %q: %w", e.word, err)
 		}
 	}
 
@@ -93,7 +93,7 @@ func (c *Checker) Check(ctx context.Context, words []Word) ([]Result, error) {
 	results := make([]Result, 0, len(words))
 	for _, w := range words {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("check words: %w", err)
 		}
 
 		r, err := c.check(w)
@@ -118,7 +118,7 @@ func (c *Checker) check(w Word) (Result, error) {
 
 	entry, err := c.index.GetEntry(k)
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("get dictionary entry: %w", err)
 	}
 	if entry != nil {
 		return Result{Word: w, Valid: true}, nil
@@ -126,7 +126,7 @@ func (c *Checker) check(w Word) (Result, error) {
 
 	found, err := c.index.Lookup(k, symspell.SuggestionLevel(symspell.LevelClosest), symspell.SortFunc(byFrequency))
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("lookup suggestions: %w", err)
 	}
 
 	// Suggestions are dictionary words, validated when the dictionary was

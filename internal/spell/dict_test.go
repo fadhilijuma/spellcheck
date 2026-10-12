@@ -2,6 +2,8 @@ package spell
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -16,6 +18,25 @@ func Test_ParseDictionary(t *testing.T) {
 	t.Parallel()
 
 	run(t, dictionary(), "dictionary")
+	table := []Table{
+		{
+			Name: "syntax-cause", ExpResp: true, CmpFunc: cmpDiff,
+			ExcFunc: func(context.Context) any {
+				_, err := parseDictionary("the ten\n")
+				cause, ok := errors.AsType[*strconv.NumError](err)
+				return ok && cause.Num == "ten" && errors.Is(err, strconv.ErrSyntax)
+			},
+		},
+		{
+			Name: "overflow-cause", ExpResp: true, CmpFunc: cmpDiff,
+			ExcFunc: func(context.Context) any {
+				_, err := parseDictionary("the 18446744073709551616\n")
+				cause, ok := errors.AsType[*strconv.NumError](err)
+				return ok && cause.Num == "18446744073709551616" && errors.Is(err, strconv.ErrRange)
+			},
+		},
+	}
+	run(t, table, "dictionary-causes")
 }
 
 func Test_ParseLanguage(t *testing.T) {
@@ -81,7 +102,7 @@ func Test_LanguageUnmarshalText(t *testing.T) {
 		},
 		{
 			Name:    "invalid-does-not-overwrite",
-			ExpResp: `en-GB: language "fr-FR": expected en-US or en-GB`,
+			ExpResp: `en-GB: parse language: language "fr-FR": expected en-US or en-GB`,
 			ExcFunc: func(context.Context) any { return unmarshalLanguage("fr-FR") },
 			CmpFunc: cmpDiff,
 		},
@@ -113,7 +134,7 @@ func dictionary() []Table {
 		},
 		{
 			Name:    "scanner-error",
-			ExpResp: "scan: bufio.Scanner: token too long",
+			ExpResp: "parse dictionary: scan word list: bufio.Scanner: token too long",
 			ExcFunc: func(context.Context) any { return parseDict(strings.Repeat("a", 65536)) },
 			CmpFunc: cmpDiff,
 		},
@@ -131,25 +152,25 @@ func dictionary() []Table {
 		},
 		{
 			Name:    "invalid-word",
-			ExpResp: `line 1: invalid word "'the": unexpected '\''`,
+			ExpResp: `parse dictionary: line 1: parse word: invalid word "'the": unexpected '\''`,
 			ExcFunc: func(context.Context) any { return parseDict("'the 10\n") },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "missing-count",
-			ExpResp: `line 2: want "word count", got "broken"`,
+			ExpResp: `parse dictionary: line 2: want "word count", got "broken"`,
 			ExcFunc: func(context.Context) any { return parseDict("the 10\nbroken\n") },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "negative-count",
-			ExpResp: `line 1: invalid count "-1"`,
+			ExpResp: `parse dictionary: line 1: parse count: strconv.ParseUint: parsing "-1": invalid syntax`,
 			ExcFunc: func(context.Context) any { return parseDict("the -1\n") },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "bad-count",
-			ExpResp: `line 1: invalid count "ten"`,
+			ExpResp: `parse dictionary: line 1: parse count: strconv.ParseUint: parsing "ten": invalid syntax`,
 			ExcFunc: func(context.Context) any { return parseDict("the ten\n") },
 			CmpFunc: cmpDiff,
 		},
@@ -195,7 +216,7 @@ func Test_ParseAcronyms(t *testing.T) {
 		},
 		{
 			Name:    "scanner-error",
-			ExpResp: "scan: bufio.Scanner: token too long",
+			ExpResp: "parse acronyms: scan word list: bufio.Scanner: token too long",
 			ExcFunc: func(context.Context) any { return acronymEntries(strings.Repeat("A", 65536)) },
 			CmpFunc: cmpDiff,
 		},
@@ -207,13 +228,13 @@ func Test_ParseAcronyms(t *testing.T) {
 		},
 		{
 			Name:    "lowercase",
-			ExpResp: `line 1: acronym "jwt" must be uppercase`,
+			ExpResp: `parse acronyms: line 1: acronym "jwt" must be uppercase`,
 			ExcFunc: func(context.Context) any { return acronymEntries("jwt\n") },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "invalid-word",
-			ExpResp: `line 2: invalid word "DNS1": unexpected '1'`,
+			ExpResp: `parse acronyms: line 2: parse word: invalid word "DNS1": unexpected '1'`,
 			ExcFunc: func(context.Context) any { return acronymEntries("JWT\nDNS1\n") },
 			CmpFunc: cmpDiff,
 		},
