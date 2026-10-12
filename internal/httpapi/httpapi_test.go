@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -124,7 +123,7 @@ func health(srv http.Handler) []Table {
 	table := []Table{
 		{
 			Name:    "liveness",
-			ExpResp: response{Status: http.StatusOK, Body: fmt.Sprintf(`{"status":"up","build":"test","host":%q,"GOMAXPROCS":%d}`, host, runtime.GOMAXPROCS(0))},
+			ExpResp: response{Status: http.StatusOK, Body: fmt.Sprintf(`{"status":"up","build":"test","host":%q}`, host)},
 			ExcFunc: func(ctx context.Context) any { return serve(ctx, srv, http.MethodGet, "/v1/liveness", "", nil) },
 			CmpFunc: cmpDiff,
 		},

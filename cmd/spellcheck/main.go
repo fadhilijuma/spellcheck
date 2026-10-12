@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -33,11 +32,6 @@ func main() {
 }
 
 func run(ctx context.Context, log *slog.Logger) error {
-
-	// -------------------------------------------------------------------------
-	// GOMAXPROCS
-
-	log.Info("startup", "GOMAXPROCS", runtime.GOMAXPROCS(0))
 
 	// -------------------------------------------------------------------------
 	// Configuration

@@ -29,10 +29,9 @@ type checkResponse struct {
 
 // livenessResponse is the body of GET /v1/liveness.
 type livenessResponse struct {
-	Status     string `json:"status"`
-	Build      string `json:"build"`
-	Host       string `json:"host"`
-	GOMAXPROCS int    `json:"GOMAXPROCS"`
+	Status string `json:"status"`
+	Build  string `json:"build"`
+	Host   string `json:"host"`
 }
 
 // errorResponse is the body of every error the API answers with.

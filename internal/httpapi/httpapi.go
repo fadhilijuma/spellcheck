@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"runtime"
 
 	"github.com/fadhilijuma/spellcheck/internal/spell"
 )
@@ -69,10 +68,9 @@ func (a *app) liveness(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, livenessResponse{
-		Status:     "up",
-		Build:      a.build,
-		Host:       host,
-		GOMAXPROCS: runtime.GOMAXPROCS(0),
+		Status: "up",
+		Build:  a.build,
+		Host:   host,
 	})
 }
 
