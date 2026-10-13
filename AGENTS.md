@@ -71,7 +71,9 @@ is available and authorized.
 
 | Command | Does |
 |---|---|
-| `make run` / `make dev` | API on :3000 / Vue on :3001 |
+| `make setup` | Build both container images and install dependencies inside them |
+| `make run` | Compose editor and API; nginx proxies `/v1`, editor on :8081 |
+| `make down` | Stop and remove the Compose stack |
 | `make check` | formatting, vet, staticcheck, Go/frontend builds, race tests and frontend unit/browser tests |
 | `make test` | `make check` plus vulnerability scans |
 

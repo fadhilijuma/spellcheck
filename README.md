@@ -27,31 +27,33 @@ the browser remembers your choice and rechecks the current draft when it changes
 
 ## Installation
 
-Requires Go 1.27.2+ (minimum version in `go.mod`), Node 22.12+ and Make.
-Race tests also require a C compiler. From the checkout root:
+Running requires Make and Podman with `podman-compose`, or Docker with Compose.
+Go and Node dependencies are installed inside the container build stages.
+From the checkout root:
 
 ```bash
 make setup
 ```
 
-This downloads Go modules and installs locked npm dependencies. Test browsers
-are installed separately; see [Verification](#verification).
+This builds both container images. For Docker, append `COMPOSE="docker compose"`
+to Make commands. Host checks have separate prerequisites; see
+[Verification](#verification).
 
 ## Running the Project
 
 ```bash
-# Start the API: http://localhost:3000
+# Start both with Compose: http://localhost:8081
 make run
 
-# In a second terminal, start the editor: http://localhost:3001
-make dev
+# Stop and remove the stack
+make down
 ```
 
-The editor's development server proxies `/v1` to the API.
+nginx serves the editor and proxies `/v1` to `app:3000` on the Compose network.
+Only the editor port is published; no CORS configuration or separate backend
+port is needed.
 
-### Containers
-
-Requires Podman with `podman-compose`, or Docker with Compose.
+For background operation:
 
 ```bash
 # Build and start: http://localhost:8081
@@ -64,9 +66,8 @@ make logs
 make down
 ```
 
-For Docker, pass `COMPOSE="docker compose"`. Set `WEB_PORT` to change the
-editor port, for example `WEB_PORT=8083 make up`. Only nginx is published;
-the Go API stays on the private container network.
+Set `WEB_PORT` to change the editor port, for example `WEB_PORT=8083 make run`.
+For Docker: `make run COMPOSE="docker compose"`.
 
 ## Decisions and Tradeoffs
 
@@ -132,7 +133,12 @@ from that reference do not apply here.
 
 ## Verification
 
+Host checks require Go 1.27.2+ (minimum version in `go.mod`), Node 22.12+ and
+a C compiler for race tests. Install their dependencies before running checks:
+
 ```bash
+go mod download
+npm --prefix web ci
 npm --prefix web run browser:install  # Once: install test browsers
 make fmt         # Format Go code
 make lint        # Check formatting, go vet and staticcheck

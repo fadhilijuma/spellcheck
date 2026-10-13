@@ -1,4 +1,4 @@
-# Run the app: make up (podman-compose; or COMPOSE="docker compose")
+# Run the app: make run (podman-compose; or COMPOSE="docker compose")
 # Vue editor + API proxy: http://localhost:8081 (override with WEB_PORT).
 
 services:
