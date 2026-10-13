@@ -5,12 +5,15 @@
 # Host checks require Go 1.27.2+, Node 22.12+ and a C compiler for race tests.
 # Override BUILD to identify a binary, or COMPOSE to use Docker Compose.
 
-BUILD    ?= develop
-COMPOSE  ?= podman-compose
-WEB_PORT ?= 8081
+BUILD           ?= develop
+COMPOSE         ?= podman-compose
+WEB_PORT        ?= 8081
+API_URL         ?= http://localhost:$(WEB_PORT)
+REQUEST_TIMEOUT ?= 600
 
 .DEFAULT_GOAL := help
-.PHONY: help setup run ready live tidy list deps-upgrade fmt lint build check test up down logs
+.PHONY: help setup run ready live request-us request-uk request-invalid \
+	tidy list deps-upgrade fmt lint build check test up down logs
 
 # ==============================================================================
 # Install dependencies
@@ -37,10 +40,33 @@ run:
 # Example: make ready live WEB_PORT=8083
 
 ready:
-	curl --fail -i http://localhost:$(WEB_PORT)/v1/readiness
+	curl --fail -i $(API_URL)/v1/readiness
 
 live:
-	curl --fail -i http://localhost:$(WEB_PORT)/v1/liveness
+	curl --fail -i $(API_URL)/v1/liveness
+
+# ==============================================================================
+# Hitting endpoints
+#
+# Calls default to Compose. For IntelliJ: API_URL=http://127.0.0.1:3005
+# The timeout allows pauses at breakpoints; each call prints its JSON response.
+
+REQUEST_US := {"words":["recieve","speling","quick"],"language":"en-US"}
+REQUEST_UK := {"words":["colour","centre","organise"],"language":"en-GB"}
+REQUEST_INVALID := {"words":["two words"],"language":"en-US"}
+
+request-us:
+	curl --fail-with-body -sS -i --max-time $(REQUEST_TIMEOUT) \
+		-H 'Content-Type: application/json' -d '$(REQUEST_US)' $(API_URL)/v1/check
+
+request-uk:
+	curl --fail-with-body -sS -i --max-time $(REQUEST_TIMEOUT) \
+		-H 'Content-Type: application/json' -d '$(REQUEST_UK)' $(API_URL)/v1/check
+
+# Intentionally returns HTTP 400; curl prints the error body and exits with code 22.
+request-invalid:
+	curl --fail-with-body -sS -i --max-time $(REQUEST_TIMEOUT) \
+		-H 'Content-Type: application/json' -d '$(REQUEST_INVALID)' $(API_URL)/v1/check
 
 # ==============================================================================
 # Go modules
@@ -123,6 +149,9 @@ help:
 		'  run        Start both with Compose; nginx proxies /v1 to the API' \
 		'  ready      Check readiness through the Compose port (WEB_PORT)' \
 		'  live       Check liveness through the Compose port (WEB_PORT)' \
+		'  request-us Replay US spelling corrections and print the JSON response' \
+		'  request-uk Replay British English and print the JSON response' \
+		'  request-invalid Replay invalid input; HTTP 400 and nonzero exit expected' \
 		'  tidy       Tidy Go modules and regenerate vendor/' \
 		'  list       List Go packages, using modules rather than vendor/' \
 		'  deps-upgrade Upgrade Go dependencies, tidy and regenerate vendor/' \

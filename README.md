@@ -69,6 +69,21 @@ make down
 Set `WEB_PORT` to change the editor port, for example `WEB_PORT=8083 make run`.
 For Docker: `make run COMPOSE="docker compose"`.
 
+### Request Replays
+
+```bash
+# Print JSON responses through the running Compose stack.
+make request-us request-uk
+make request-invalid  # Expected HTTP 400; Make exits nonzero.
+
+# Replay against the running IntelliJ debugger; pauses can last up to 10 minutes.
+make request-us API_URL=http://127.0.0.1:3005
+```
+
+Use `WEB_PORT=8083` for a Compose stack on that port, or override `API_URL`
+for another endpoint. `REQUEST_TIMEOUT` is in seconds and defaults to `600`
+to accommodate breakpoints.
+
 ## Decisions and Tradeoffs
 
 | Decision | Reason and tradeoff |
@@ -178,13 +193,11 @@ optimal string alignment distance; `ardanlabs/conf` provides configuration.
 | GET | `/v1/readiness` | 204, ready to accept traffic |
 
 ```bash
-curl -sS http://localhost:3000/v1/check \
-  -H 'Content-Type: application/json' \
-  -d '{"words":["quick","recieve"],"language":"en-US"}'
+make request-us
 ```
 
 ```json
-{"misspelled":[{"word":"recieve","suggestions":["receive","relieve"]}]}
+{"misspelled":[{"word":"recieve","suggestions":["receive","relieve"]},{"word":"speling","suggestions":["spelling","spewing","spieling"]}]}
 ```
 
 Valid words are omitted; an all-valid request returns `{"misspelled":[]}`.
