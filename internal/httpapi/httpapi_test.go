@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/fadhilijuma/spellcheck/internal/httpapi"
 	"github.com/fadhilijuma/spellcheck/internal/spell"
+	"github.com/go-playground/validator/v10"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -206,17 +208,26 @@ func Test_RequestLimits(t *testing.T) {
 		err            string
 	}{
 		{name: "invalid-language", language: "fr-FR", wordLen: 64, words: 500, bytes: 385564, err: `default language: language "fr-FR": expected en-US or en-GB`},
-		{name: "zero-word-length", wordLen: 0, words: 500, bytes: 385564, err: "max word length: must be positive"},
-		{name: "negative-word-length", wordLen: -1, words: 500, bytes: 385564, err: "max word length: must be positive"},
-		{name: "zero-count", wordLen: 64, words: 0, bytes: 385564, err: "max words: must be positive"},
-		{name: "negative-count", wordLen: 64, words: -1, bytes: 385564, err: "max words: must be positive"},
-		{name: "zero-body", wordLen: 64, words: 500, bytes: 0, err: "max body bytes: must be positive"},
-		{name: "negative-body", wordLen: 64, words: 500, bytes: -1, err: "max body bytes: must be positive"},
+		{name: "zero-word-length", wordLen: 0, words: 500, bytes: 385564, err: "MaxWordLen:gt=0"},
+		{name: "negative-word-length", wordLen: -1, words: 500, bytes: 385564, err: "MaxWordLen:gt=0"},
+		{name: "zero-count", wordLen: 64, words: 0, bytes: 385564, err: "MaxWords:gt=0"},
+		{name: "negative-count", wordLen: 64, words: -1, bytes: 385564, err: "MaxWords:gt=0"},
+		{name: "zero-body", wordLen: 64, words: 500, bytes: 0, err: "MaxBodyBytes:gt=0"},
+		{name: "negative-body", wordLen: 64, words: 500, bytes: -1, err: "MaxBodyBytes:gt=0"},
+		{name: "all-zero-limits", err: "MaxWordLen:gt=0,MaxWords:gt=0,MaxBodyBytes:gt=0"},
+		{name: "minimum-positive-limits", wordLen: 1, words: 1, bytes: 1},
 	} {
 		table = append(table, Table{
 			Name: row.name, ExpResp: row.err, CmpFunc: cmpDiff,
 			ExcFunc: func(context.Context) any {
 				_, err := httpapi.New(slog.New(slog.DiscardHandler), row.language, "test", nil, row.wordLen, row.words, row.bytes, nil)
+				if failures, ok := errors.AsType[validator.ValidationErrors](err); ok {
+					fields := make([]string, 0, len(failures))
+					for _, failure := range failures {
+						fields = append(fields, failure.Field()+":"+failure.Tag()+"="+failure.Param())
+					}
+					return strings.Join(fields, ",")
+				}
 				if err != nil {
 					return err.Error()
 				}

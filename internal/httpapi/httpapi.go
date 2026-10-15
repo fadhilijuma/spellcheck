@@ -11,16 +11,19 @@ import (
 	"os"
 
 	"github.com/fadhilijuma/spellcheck/internal/spell"
+	"github.com/go-playground/validator/v10"
 )
 
 type app struct {
 	defaultLanguage spell.Language
 	build           string
-	maxWordLen      int
-	maxWords        int
-	maxBodyBytes    int64
+	MaxWordLen      int   `validate:"gt=0"`
+	MaxWords        int   `validate:"gt=0"`
+	MaxBodyBytes    int64 `validate:"gt=0"`
 	checkers        map[spell.Language]*spell.Checker
 }
+
+var validate = validator.New()
 
 // New returns the service's HTTP handler with all routes and middleware.
 // Health probes are not logged: the container runtime calls them every few
@@ -31,21 +34,16 @@ func New(log *slog.Logger, defaultLanguage spell.Language, build string, corsOri
 	if err != nil {
 		return nil, fmt.Errorf("default language: %w", err)
 	}
-	switch {
-	case maxWordLen <= 0:
-		return nil, fmt.Errorf("max word length: must be positive")
-	case maxWords <= 0:
-		return nil, fmt.Errorf("max words: must be positive")
-	case maxBodyBytes <= 0:
-		return nil, fmt.Errorf("max body bytes: must be positive")
-	}
 	a := app{
 		defaultLanguage: language,
 		build:           build,
-		maxWordLen:      maxWordLen,
-		maxWords:        maxWords,
-		maxBodyBytes:    maxBodyBytes,
+		MaxWordLen:      maxWordLen,
+		MaxWords:        maxWords,
+		MaxBodyBytes:    maxBodyBytes,
 		checkers:        checkers,
+	}
+	if err := validate.Struct(a); err != nil {
+		return nil, fmt.Errorf("validate request limits: %w", err)
 	}
 
 	mux := http.NewServeMux()
@@ -68,9 +66,9 @@ func (a *app) configuration(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, configurationResponse{
 		DefaultLanguage: a.defaultLanguage,
-		MaxWordLen:      a.maxWordLen,
-		MaxWords:        a.maxWords,
-		MaxBodyBytes:    a.maxBodyBytes,
+		MaxWordLen:      a.MaxWordLen,
+		MaxWords:        a.MaxWords,
+		MaxBodyBytes:    a.MaxBodyBytes,
 	})
 }
 
@@ -97,12 +95,12 @@ func (a *app) readiness(w http.ResponseWriter, _ *http.Request) {
 // check writes misspelled words and suggestions, omitting valid words.
 // Failures are returned with an HTTP status for the request boundary to handle.
 func (a *app) check(w http.ResponseWriter, r *http.Request) (int, error) {
-	req, err := decodeCheck(w, r, a.maxBodyBytes)
+	req, err := decodeCheck(w, r, a.MaxBodyBytes)
 	if err != nil {
 		return http.StatusBadRequest, fmt.Errorf("decode check request: %w", err)
 	}
 
-	words, err := toWords(req, a.maxWordLen, a.maxWords)
+	words, err := toWords(req, a.MaxWordLen, a.MaxWords)
 	if err != nil {
 		return http.StatusBadRequest, fmt.Errorf("parse check words: %w", err)
 	}

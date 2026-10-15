@@ -182,6 +182,8 @@ OS-specific IME testing are not included. CI runs `make test`.
 `main` constructs one `spell.Checker` per language and passes them to `httpapi.New`. Spelling
 does not depend on HTTP. `eskriett/spell` provides the SymSpell index and
 optimal string alignment distance; `ardanlabs/conf` provides configuration.
+`go-playground/validator` checks the HTTP constructor's positive request limits
+using struct tags before the routes are registered.
 
 ## API
 

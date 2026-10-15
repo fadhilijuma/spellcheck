@@ -45,6 +45,7 @@ is available and authorized.
 - Keep package-level type declarations above functions. Avoid pass-through
   getters for incidental bookkeeping; remove unused state instead.
 - **Dependencies:** the standard library, `eskriett/spell`, `ardanlabs/conf`,
+  `go-playground/validator` for HTTP constructor limits,
   and `go-cmp` in tests. The frontend uses Vue/Vuetify and Playwright for
   development-only browser tests. Ask before adding anything.
 - **Tests are the spec, and every test is table-driven.** Never weaken,
