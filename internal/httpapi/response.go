@@ -49,12 +49,7 @@ func toCheckResponse(results []spell.Result) checkResponse {
 			continue
 		}
 
-		suggestions := make([]string, 0, len(r.Suggestions))
-		for _, s := range r.Suggestions {
-			suggestions = append(suggestions, s.String())
-		}
-
-		resp.Misspelled = append(resp.Misspelled, misspelling{Word: r.Word.String(), Suggestions: suggestions})
+		resp.Misspelled = append(resp.Misspelled, misspelling{Word: r.Word, Suggestions: r.Suggestions})
 	}
 
 	return resp

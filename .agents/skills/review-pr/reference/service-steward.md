@@ -45,7 +45,7 @@ mistakes, data races, leaked goroutines, leaked resources (unclosed response bod
 files), unchecked input, text corruption, privacy leaks and stale check results.
 
 **3. Architectural fit.** `cmd/spellcheck` configures and wires the service;
-`internal/spell` owns validation, dictionary and spelling without HTTP/JSON/logging;
+`internal/spell` owns dictionary lookup and spelling without HTTP/JSON/logging;
 `internal/httpapi` translates HTTP without duplicating spelling rules; `web`
 owns editing, request lifecycle and corrections. SymSpell provides the spelling
 implementation; do not add hand-written edit distance, one-implementation

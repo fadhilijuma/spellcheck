@@ -94,6 +94,14 @@ to accommodate breakpoints.
 | Debounced, cancellable checks | Reduces requests and prevents stale results. Feedback arrives after a 300 ms typing pause. |
 | Stateless prototype | No accounts or saved drafts. Focus stays on the writing-and-correction flow rather than persistence or production operations. |
 
+The library owns dictionary membership, edit distance, candidate deduplication
+and closest-match selection. Our adapter reads the embedded word lists into
+library `Entry` values, applies case/apostrophe handling and acronym rules, and
+adds alphabetical tie-breaking and the suggestion limit. It uses `GetWords` to
+extract suggestions. The library's optional `Save`/`Load` format stores words
+and settings, not a prebuilt deletion index: `Load` calls `AddEntry` again.
+Embedding the text lists avoids an extra generated dictionary file and disk I/O.
+
 ## Agent Skills
 
 [AGENTS.md](AGENTS.md) defines project rules and routes work to the skills in
@@ -173,7 +181,7 @@ OS-specific IME testing are not included. CI runs `make test`.
 | Path | Responsibility |
 |---|---|
 | `cmd/spellcheck` | Configuration, dependency wiring, startup and shutdown |
-| `internal/spell` | Word validation, language selection and ranked suggestions |
+| `internal/spell` | String lookups, language selection and ranked suggestions |
 | `internal/spell/languages` | Embedded US/British dictionaries and a shared acronym allowlist |
 | `internal/httpapi` | Routing, JSON validation and middleware |
 | `web/src` | Editor, tokenization and request lifecycle |
@@ -182,8 +190,8 @@ OS-specific IME testing are not included. CI runs `make test`.
 `main` constructs one `spell.Checker` per language and passes them to `httpapi.New`. Spelling
 does not depend on HTTP. `eskriett/spell` provides the SymSpell index and
 optimal string alignment distance; `ardanlabs/conf` provides configuration.
-`go-playground/validator` checks the HTTP constructor's positive request limits
-using struct tags before the routes are registered.
+`go-playground/validator` checks index settings when constructing each checker
+and positive word limits when constructing the HTTP handler, using struct tags.
 
 ## API
 
@@ -203,6 +211,8 @@ make request-us
 ```
 
 Valid words are omitted; an all-valid request returns `{"misspelled":[]}`.
+Empty, omitted or null word lists and blank entries also return no spelling
+warnings. Blank entries in a mixed batch are ignored without changing other words.
 Suggestions use the smallest available edit distance within the configured
 maximum, then frequency descending with alphabetical ties. Defaults are two
 edits and at most five suggestions per word.
@@ -216,11 +226,14 @@ Handler errors use `{"error":"..."}`. Routing errors (404/405) use
 
 | Status | Condition |
 |---|---|
-| 400 | Invalid JSON, unknown fields, unsupported language, invalid word or word count outside 1–`MaxWords` |
-| 413 | Body exceeds `MaxBodyBytes` |
+| 400 | Invalid JSON/types, unsupported language, exceeded input length or more than `MaxWords` entries |
+| 413 | JSON request body exceeds the internal 1 MiB limit |
 | 404 | Unknown path |
 | 405 | Unsupported method; includes `Allow` |
 | 500 | Unexpected server error; details are logged, not returned |
+
+Requests contain one complete JSON object. Unknown fields are ignored;
+malformed JSON and trailing data are rejected.
 
 ## Configuration
 
@@ -231,7 +244,6 @@ Run `go run ./cmd/spellcheck -h` for flags. Environment variables:
 | `SPELL_DEFAULT_LANGUAGE` | `en-US` | Default English convention: `en-US` or `en-GB` |
 | `SPELL_MAX_WORD_LEN` | `64` | Maximum input length in Unicode code points; must be positive |
 | `SPELL_MAX_WORDS` | `500` | Maximum words per request; must be positive |
-| `SPELL_MAX_BODY_BYTES` | `385564` | Maximum JSON request-body bytes; must be positive |
 | `SPELL_MAX_SUGGESTIONS` | `5` | Maximum suggestions per word; must be positive |
 | `SPELL_MAX_DISTANCE` | `2` | Maximum edits; `0` allows exact matches only |
 | `SPELL_PREFIX_LENGTH` | `7` | Indexed runes per word; must exceed maximum distance |
@@ -259,17 +271,23 @@ Set the input length with `SPELL_MAX_WORD_LEN=80 make run` or
 `go run ./cmd/spellcheck --max-word-len=80`; Compose accepts the same variable.
 Reducing this limit does not truncate the embedded dictionaries or delete
 previously accepted personal words.
-Set request limits with `go run ./cmd/spellcheck --max-words=100 --max-body-bytes=65536`
-or the corresponding environment variables; Compose accepts both. The body
-budget is independent of word length and includes the complete encoded JSON.
+Set the batch word limit with `go run ./cmd/spellcheck --max-words=100`
+or `SPELL_MAX_WORDS`; Compose accepts the same variable. The HTTP package
+enforces a fixed 1 MiB limit on the complete JSON body. It is not a flag or
+environment setting. The editor reads this limit from `/v1/config` and sizes
+requests automatically; users do not enter byte limits.
 Invalid limits fail startup. A larger edit distance increases index-building
 work and memory usage; longer indexed prefixes also increase index size.
 Prefix length limits candidate indexing, not the whole-word distance check.
 
-The API constructor validates request limits once. Word parsing enforces the
-length and syntax of each submitted word; the checker consumes those validated
-words without counting their length again. The editor validates configuration
-when fetched, not on every typing check.
+The API constructor validates request limits once. HTTP enforces input length
+and batch limits, then passes strings directly to the checker. The checker does
+not impose letters-only or apostrophe-placement rules. Blank entries are ignored;
+other strings, including digits and punctuation, are passed to the library.
+A lookup without suggestions is still an unknown input, not proof of correct spelling.
+The editor validates configuration when fetched, not on every typing check.
+Each English checker loads the acronym list during construction.
+Dictionary membership and suggestions use a single lookup.
 
 The frontend uses `/v1` by default. `SPELL_API_PROXY` changes the development
 proxy target; `VITE_SERVICE_API` changes the API base at frontend build time.
@@ -297,8 +315,8 @@ proxy target; `VITE_SERVICE_API` changes the API base at frontend build time.
   Personal words filter spelling warnings locally; they do not change the
   embedded dictionaries or the API's suggestions. Draft words are still sent
   to the configured spelling API.
-- Requests contain 1–`MaxWords` words (500 by default), within `MaxBodyBytes`
-  (385,564 by default, preserving the previous default budget). The editor
+- Requests contain up to `MaxWords` entries (500 by default), within the internal
+  1 MiB body limit. The editor
   deduplicates words and sizes batches against both limits using actual UTF-8
   JSON bytes. Words above `MaxWordLen` are reported as unchecked. A word that
   cannot fit the body budget reports **Check unavailable**, never **All clear**.
@@ -310,12 +328,13 @@ proxy target; `VITE_SERVICE_API` changes the API base at frontend build time.
 
 ## Benchmarks
 
-Single-word benchmarks exclude dictionary construction; they are not service
-capacity or spelling-accuracy measurements.
+Single-word benchmarks exclude dictionary construction. Parser benchmarks cover
+the embedded US/British lists and acronyms without building the index. Neither
+measures service capacity or spelling accuracy.
 
 ```bash
 go test -run '^$' -bench '^BenchmarkCheck$' -benchmem -count=10 ./internal/spell
-go test -run '^$' -bench '^BenchmarkParseWord$' -benchmem -count=10 ./internal/spell
+go test -run '^$' -bench '^BenchmarkParseWordList$' -benchmem -count=10 ./internal/spell
 ```
 
 ## Improvements with More Time

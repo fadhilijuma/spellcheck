@@ -6,7 +6,7 @@ only changed lines. Use the diff range I provide; otherwise review the current
 code and state that scope. Do not invent a PR or change history.
 
 Check cmd/spellcheck/main.go for configuration, startup-built dictionaries,
-HTTP wiring and shutdown. Check internal/spell for validated words, language
+HTTP wiring and shutdown. Check internal/spell for string lookups, language
 selection, acronym handling and deterministic suggestions. Check internal/httpapi
 for request limits, JSON decoding, cancellation and error responses. Follow
 web/src from typing through batching, responses, inline correction and Undo.

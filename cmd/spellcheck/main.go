@@ -41,7 +41,6 @@ func run(ctx context.Context, log *slog.Logger) error {
 		DefaultLanguage spell.Language `conf:"default:en-US"`
 		MaxWordLen      int            `conf:"default:64"`
 		MaxWords        int            `conf:"default:500"`
-		MaxBodyBytes    int64          `conf:"default:385564"`
 		MaxSuggestions  int            `conf:"default:5"`
 		MaxDistance     uint32         `conf:"default:2"`
 		PrefixLength    uint32         `conf:"default:7"`
@@ -109,7 +108,7 @@ func run(ctx context.Context, log *slog.Logger) error {
 	defer signal.Stop(shutdown)
 
 	handler, err := httpapi.New(log, cfg.DefaultLanguage, cfg.Build, cfg.Web.CORSAllowedOrigins,
-		cfg.MaxWordLen, cfg.MaxWords, cfg.MaxBodyBytes, checkers)
+		cfg.MaxWordLen, cfg.MaxWords, checkers)
 	if err != nil {
 		return fmt.Errorf("initialize API: %w", err)
 	}

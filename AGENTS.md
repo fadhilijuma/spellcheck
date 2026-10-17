@@ -11,7 +11,7 @@ small application: keep it focused. README documents the behavior.
 | Path | Holds |
 |---|---|
 | `cmd/spellcheck` | `main`: config, wiring, shutdown. No logic |
-| `internal/spell` | spelling: `Checker`, `Word`, embedded US/British word lists and acronyms. No HTTP |
+| `internal/spell` | spelling: `Checker`, string inputs, embedded US/British word lists and acronyms. No HTTP |
 | `internal/httpapi` | routes, handlers, request/response, middleware. No spelling rules |
 | `web` | the Vue editor and its nginx container |
 
@@ -44,8 +44,10 @@ is available and authorized.
   no helpers used once, nothing "for later".
 - Keep package-level type declarations above functions. Avoid pass-through
   getters for incidental bookkeeping; remove unused state instead.
+- Pass strings to the spelling library without letters-only or apostrophe-placement
+  validation. HTTP owns request size/count limits; do not restore a `Word` wrapper.
 - **Dependencies:** the standard library, `eskriett/spell`, `ardanlabs/conf`,
-  `go-playground/validator` for HTTP constructor limits,
+  `go-playground/validator` for constructor settings,
   and `go-cmp` in tests. The frontend uses Vue/Vuetify and Playwright for
   development-only browser tests. Ask before adding anything.
 - **Tests are the spec, and every test is table-driven.** Never weaken,

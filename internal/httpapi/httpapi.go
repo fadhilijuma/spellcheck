@@ -17,9 +17,8 @@ import (
 type app struct {
 	defaultLanguage spell.Language
 	build           string
-	MaxWordLen      int   `validate:"gt=0"`
-	MaxWords        int   `validate:"gt=0"`
-	MaxBodyBytes    int64 `validate:"gt=0"`
+	MaxWordLen      int `validate:"gt=0"`
+	MaxWords        int `validate:"gt=0"`
 	checkers        map[spell.Language]*spell.Checker
 }
 
@@ -29,7 +28,7 @@ var validate = validator.New()
 // Health probes are not logged: the container runtime calls them every few
 // seconds. An empty corsOrigins list disables CORS.
 func New(log *slog.Logger, defaultLanguage spell.Language, build string, corsOrigins []string,
-	maxWordLen, maxWords int, maxBodyBytes int64, checkers map[spell.Language]*spell.Checker) (http.Handler, error) {
+	maxWordLen, maxWords int, checkers map[spell.Language]*spell.Checker) (http.Handler, error) {
 	language, err := spell.ParseLanguage(string(defaultLanguage))
 	if err != nil {
 		return nil, fmt.Errorf("default language: %w", err)
@@ -39,7 +38,6 @@ func New(log *slog.Logger, defaultLanguage spell.Language, build string, corsOri
 		build:           build,
 		MaxWordLen:      maxWordLen,
 		MaxWords:        maxWords,
-		MaxBodyBytes:    maxBodyBytes,
 		checkers:        checkers,
 	}
 	if err := validate.Struct(a); err != nil {
@@ -68,7 +66,7 @@ func (a *app) configuration(w http.ResponseWriter, _ *http.Request) {
 		DefaultLanguage: a.defaultLanguage,
 		MaxWordLen:      a.MaxWordLen,
 		MaxWords:        a.MaxWords,
-		MaxBodyBytes:    a.MaxBodyBytes,
+		MaxBodyBytes:    maxBodyBytes,
 	})
 }
 
@@ -95,14 +93,13 @@ func (a *app) readiness(w http.ResponseWriter, _ *http.Request) {
 // check writes misspelled words and suggestions, omitting valid words.
 // Failures are returned with an HTTP status for the request boundary to handle.
 func (a *app) check(w http.ResponseWriter, r *http.Request) (int, error) {
-	req, err := decodeCheck(w, r, a.MaxBodyBytes)
+	req, err := decodeCheck(w, r)
 	if err != nil {
 		return http.StatusBadRequest, fmt.Errorf("decode check request: %w", err)
 	}
 
-	words, err := toWords(req, a.MaxWordLen, a.MaxWords)
-	if err != nil {
-		return http.StatusBadRequest, fmt.Errorf("parse check words: %w", err)
+	if err := validateCheck(req, a.MaxWordLen, a.MaxWords); err != nil {
+		return http.StatusBadRequest, fmt.Errorf("check request limits: %w", err)
 	}
 
 	language, err := spell.ParseLanguage(cmp.Or(req.Language, string(a.defaultLanguage)))
@@ -113,7 +110,7 @@ func (a *app) check(w http.ResponseWriter, r *http.Request) (int, error) {
 	if checker == nil {
 		return http.StatusInternalServerError, fmt.Errorf("checker for %s is not configured", language)
 	}
-	results, err := checker.Check(r.Context(), words)
+	results, err := checker.Check(r.Context(), req.Words)
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("check words: %w", err)
 	}

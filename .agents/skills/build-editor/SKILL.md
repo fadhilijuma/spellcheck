@@ -20,7 +20,8 @@ anything else    show "Check unavailable"
 Words not in `misspelled` are valid only after a successful, validated response.
 Read `maxWordLen`, `maxWords` and `maxBodyBytes` from `GET /v1/config`.
 Validate these settings when loading configuration, not on each document check.
-Batch against both the configured word count and actual UTF-8 JSON body bytes;
+The body cap is fixed inside HTTP, not a user configuration setting.
+Batch against the configured word count and advertised body cap using actual UTF-8 JSON bytes;
 do not duplicate startup defaults or estimate byte size from character counts.
 A word that cannot fit the body budget is a failed check, not a valid word.
 Language is `en-US` or `en-GB` (traditional British spelling). Omitted or empty
@@ -46,8 +47,8 @@ the language preference and accepted personal words in browser storage, never th
 
 - Words are Unicode letters with inner apostrophes. Split on hyphens. Skip
   numbers, URLs and emails. Check uppercase words too; case alone does not
-  establish that a word is an acronym. Keep this in step with
-  `spell.ParseWord` in Go.
+  establish that a word is an acronym. These are editor tokenization rules;
+  the Go API accepts strings directly without enforcing this syntax.
 - A failed check keeps the text, clears old marks and never blocks typing.
 - Test pure helper behavior in adjacent `*.test.js` files and interactions in
   `web/tests/`. No router, store or extra UI library.

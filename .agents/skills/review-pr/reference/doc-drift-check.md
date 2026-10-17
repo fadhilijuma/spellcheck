@@ -22,7 +22,7 @@ diff has them.
 
 - **Go** (primary): exported identifiers carry useful Go doc where package style
   requires it, doc comments begin with the identifier name where that convention
-  applies, and comments about word validation, ranking, case preservation,
+  applies, and comments about string lookups, ranking, case preservation,
   dictionary construction and concurrency match the implementation.
 - **Vue/JS**: JSDoc and component-level comments match actual `props`/`emits`,
   events, and behavior.

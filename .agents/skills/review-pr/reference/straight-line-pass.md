@@ -38,7 +38,7 @@ repeated early-exit checks; tangled success/error paths.
 blocks; wrappers with no domain value; comments narrating obvious code; names that
 force the reader to inspect the implementation.
 
-**3. Keep useful structure.** Preserve word validation, HTTP translation and
+**3. Keep useful structure.** Preserve request limits, HTTP translation and
 response validation, request-generation/abort/deadline handling, UTF-16 offset
 mapping, correction/Undo state and readable table-driven test setup. Do not
 replace these contracts with generic helpers or add new layers/dependencies.

@@ -2,9 +2,10 @@ import { expect, test } from '@playwright/test';
 
 const cases = [
   {
-    name: 'real API checking respects configured word-count and UTF-8 byte limits',
+    name: 'real API checking respects word count and the internal UTF-8 body cap',
     async run(page, editor) {
       const limits = await page.request.get('/v1/config').then(response => response.json());
+      expect(limits.maxBodyBytes).toBe(1 << 20);
       const batches = [];
       page.on('request', request => {
         if (request.method() === 'POST' && request.url().endsWith('/v1/check')) {

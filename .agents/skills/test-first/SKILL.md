@@ -12,12 +12,12 @@ Write the tests and only the stubs needed to compile them. Don't implement.
 Every test MUST be table-driven: one explicit row per behaviour, run by one
 loop. Do not replace tables with standalone tests and hand-written asserts.
 For Go, use `[]Table` and the package's `run` helper, following
-`internal/spell/word_test.go`. Keep this requirement when updating the skill.
+`internal/spell/spell_test.go`. Keep this requirement when updating the skill.
 
 ## Steps
 
 1. Read README for the behaviour. If it is unclear, ask; don't invent.
-2. Copy the shape of an existing test: `internal/spell/word_test.go` for a
+2. Copy the shape of an existing test: `internal/spell/spell_test.go` for a
    function, `internal/httpapi/httpapi_test.go` for the API,
    `web/src/*.test.js` for the frontend.
 3. Add stubs that compile and return zero values, marked `// TODO(impl)`.

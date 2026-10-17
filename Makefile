@@ -53,7 +53,7 @@ live:
 
 REQUEST_US := {"words":["recieve","speling","quick"],"language":"en-US"}
 REQUEST_UK := {"words":["colour","centre","organise"],"language":"en-GB"}
-REQUEST_INVALID := {"words":["two words"],"language":"en-US"}
+REQUEST_INVALID := {"words":"two words","language":"en-US"}
 
 request-us:
 	curl --fail-with-body -sS -i --max-time $(REQUEST_TIMEOUT) \

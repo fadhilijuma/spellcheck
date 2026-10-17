@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	symspell "github.com/eskriett/spell"
 )
 
 // americanEnglish and britishEnglish contain the embedded spelling lists;
@@ -25,12 +27,6 @@ var knownAcronyms string
 
 // Language identifies a supported English spelling convention.
 type Language string
-
-// entry is a dictionary word and how often it occurs.
-type entry struct {
-	word  Word
-	count uint64
-}
 
 const (
 	// EnglishUS uses American spelling; EnglishGB uses British -ise spelling.
@@ -67,14 +63,14 @@ func parseAcronyms(text string) (map[string]struct{}, error) {
 	}
 	acronyms := make(map[string]struct{}, len(entries))
 	for _, e := range entries {
-		acronyms[e.word.String()] = struct{}{}
+		acronyms[e.Word] = struct{}{}
 	}
 	return acronyms, nil
 }
 
 // parseDictionary reads "word count" lines. Blank lines are skipped; any other
 // malformed line is an error that names its line number.
-func parseDictionary(text string) ([]entry, error) {
+func parseDictionary(text string) ([]symspell.Entry, error) {
 	entries, err := parseWordList(text, true)
 	if err != nil {
 		return nil, fmt.Errorf("parse dictionary: %w", err)
@@ -82,10 +78,11 @@ func parseDictionary(text string) ([]entry, error) {
 	return entries, nil
 }
 
-// parseWordList shares scanning and word validation. Dictionary lines have
+// parseWordList shares word-list scanning. Dictionary lines have
 // counts; acronym lines contain only an uppercase word.
-func parseWordList(text string, withCounts bool) ([]entry, error) {
-	var entries []entry
+func parseWordList(text string, withCounts bool) ([]symspell.Entry, error) {
+	// One slot per possible line avoids repeatedly copying the growing list.
+	entries := make([]symspell.Entry, 0, strings.Count(text, "\n")+1)
 
 	sc := bufio.NewScanner(strings.NewReader(text))
 	for n := 1; sc.Scan(); n++ {
@@ -94,31 +91,12 @@ func parseWordList(text string, withCounts bool) ([]entry, error) {
 			continue
 		}
 
-		value := line
-		var count uint64
-		if withCounts {
-			var countStr string
-			var ok bool
-			value, countStr, ok = strings.Cut(line, " ")
-			if !ok {
-				return nil, fmt.Errorf("line %d: want \"word count\", got %q", n, line)
-			}
-			var err error
-			count, err = strconv.ParseUint(countStr, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("line %d: parse count: %w", n, err)
-			}
-		}
-
-		w, err := parseWord(value)
+		e, err := parseEntry(line, withCounts)
 		if err != nil {
-			return nil, fmt.Errorf("line %d: parse word: %w", n, err)
-		}
-		if !withCounts && value != strings.ToUpper(value) {
-			return nil, fmt.Errorf("line %d: acronym %q must be uppercase", n, value)
+			return nil, fmt.Errorf("line %d: %w", n, err)
 		}
 
-		entries = append(entries, entry{word: w, count: count})
+		entries = append(entries, e)
 	}
 
 	if err := sc.Err(); err != nil {
@@ -126,4 +104,24 @@ func parseWordList(text string, withCounts bool) ([]entry, error) {
 	}
 
 	return entries, nil
+}
+
+// parseEntry interprets one trimmed, nonblank dictionary or acronym line.
+func parseEntry(line string, withCounts bool) (symspell.Entry, error) {
+	if !withCounts {
+		if line != strings.ToUpper(line) {
+			return symspell.Entry{}, fmt.Errorf("acronym %q must be uppercase", line)
+		}
+		return symspell.Entry{Word: line}, nil
+	}
+
+	word, countText, ok := strings.Cut(line, " ")
+	if !ok {
+		return symspell.Entry{}, fmt.Errorf("want \"word count\", got %q", line)
+	}
+	count, err := strconv.ParseUint(countText, 10, 64)
+	if err != nil {
+		return symspell.Entry{}, fmt.Errorf("parse count: %w", err)
+	}
+	return symspell.Entry{Word: word, Frequency: count}, nil
 }

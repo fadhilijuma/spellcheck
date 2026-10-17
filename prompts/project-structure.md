@@ -17,13 +17,12 @@ spellcheck/
 ├── internal/
 │   ├── spell/
 │   │   ├── spell.go            # Checker, index construction and suggestions
-│   │   ├── word.go             # Word value and input parsing
 │   │   ├── dict.go             # Language, embedded lists and shared parser
 │   │   ├── *_test.go           # Adjacent table-driven domain tests
 │   │   └── languages/          # US/British word lists and acronym allowlist
 │   └── httpapi/
 │       ├── httpapi.go          # Constructor, routes and check handler
-│       ├── request.go          # JSON decoding and word validation
+│       ├── request.go          # JSON decoding and request limits
 │       ├── response.go         # JSON response models and encoding
 │       ├── middleware.go       # HTTP errors, panic recovery, CORS and paths
 │       └── httpapi_test.go     # Table-driven HTTP contract tests
@@ -91,23 +90,27 @@ and editor rules out of the entry point. There is no debug service.
 | Type | Responsibility |
 |---|---|
 | `Language` | Supported English convention, parsed from text |
-| `Word` | Validated spelling input with a private value and meaningful `String()` |
 | `Config` | Suggestion count, edit-distance limit and indexed prefix length |
 | `Checker` | Read-only spelling index and acronym allowlist after construction |
 | `Result` | Input word, validity and concrete suggested words |
 
 `NewEnglish` selects directly embedded US/British text and the shared acronym
-list. `New` parses word/frequency entries and builds an `eskriett/spell`
-SymSpell index. Dictionary and acronym parsing share the word-list scanner.
+list. `New` validates suggestion/prefix settings using struct tags, parses
+library `Entry` values and builds an `eskriett/spell` SymSpell index. Do not
+introduce a second word/frequency model or reimplement lookup/deduplication.
+Dictionary and acronym parsing share the word-list scanner; size the entries slice from
+the source line count to avoid repeated growth and copying.
+Parse acronyms directly during construction, without a global lazy cache.
 Do not hand-edit generated `languages/en-*.txt`; maintain acronyms deliberately.
 
 Build both indexes once at startup, not during a request. Each request selects
 an existing checker. `net/http` supplies request concurrency; immutable checkers
 can be shared. Do not introduce per-word goroutines or mutate shared indexes.
 
-`Check` consumes validated `[]Word` and returns `[]Result` in input order:
+`Check` consumes `[]string` and returns `[]Result` in input order:
 
-1. Honor context cancellation between lookups and reject a zero-value word.
+1. Honor context cancellation between lookups and ignore blank entries; do not
+   reject input syntax.
 2. Accept exact curated acronyms as written.
 3. Normalize case and apostrophes for dictionary membership.
 4. For unknown words, query the deletion index for closest-distance candidates.
@@ -119,25 +122,31 @@ Levenshtein implementation or an exhaustive dictionary scan. Prefix length
 limits candidate indexing; the final distance check uses the complete word.
 Only the nearest available distance within the limit is returned, not every
 candidate at every distance. Suggestions are not context-aware grammar checks.
+Use the library's `GetWords` to extract suggestions, then preserve input case.
+Its optional disk `Save`/`Load` format rebuilds the index from saved entries;
+it is not a precomputed index cache required for subsequent requests.
 Cancellation is checked between lookups; an in-progress library lookup cannot
 be interrupted.
 
 ## HTTP Boundary and Errors
 
 `httpapi.New` receives the logger, default language, build, CORS origins, request
-limits and checker map. It validates the default language and positive request
-limits at construction. Do not introduce a duplicate HTTP config type.
+word limits and checker map. It validates the default language and positive word
+limits at construction. Do not introduce a duplicate HTTP config type. Keep the
+1 MiB body cap as an internal HTTP constant, not a flag or environment setting.
 
 | Endpoint | Responsibility |
 |---|---|
-| `GET /v1/config` | Default language and word-length/count/body-byte limits |
-| `POST /v1/check` | Validated words to misspellings and ranked suggestions |
+| `GET /v1/config` | Default language, word limits and the internal body cap for automatic client batching |
+| `POST /v1/check` | String inputs to misspellings and ranked suggestions |
 | `GET /v1/liveness` | Process/build information |
 | `GET /v1/readiness` | Ready after indexes have been constructed |
 
-Decode one JSON object, reject unknown fields and trailing data, limit body bytes
-and enforce word count. `ParseWord` checks Unicode length and spelling syntax at
-the input boundary; the checker does not repeat the length scan. Empty/omitted
+Read the size-bounded body and use json.Unmarshal to decode one JSON object.
+Ignore unknown fields; malformed JSON and trailing data are rejected. Enforce
+word count and Unicode input length. Pass the strings directly to
+the checker; do not add letters-only or apostrophe-placement rules. Empty word
+lists succeed with no warnings; the checker ignores blank entries. Empty/omitted
 request language resolves to the configured default; unsupported values fail.
 
 Keep short operation context with `%w`. Spelling code returns errors, not HTTP

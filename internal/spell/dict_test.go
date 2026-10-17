@@ -6,13 +6,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-)
 
-// plainEntry is an entry with plain values.
-type plainEntry struct {
-	Word  string
-	Count uint64
-}
+	symspell "github.com/eskriett/spell"
+)
 
 func Test_ParseDictionary(t *testing.T) {
 	t.Parallel()
@@ -35,6 +31,26 @@ func Test_ParseDictionary(t *testing.T) {
 				return ok && cause.Num == "18446744073709551616" && errors.Is(err, strconv.ErrRange)
 			},
 		},
+	}
+	for _, tc := range []struct {
+		name       string
+		line       string
+		withCounts bool
+		expected   symspell.Entry
+	}{
+		{name: "counted-entry", line: "the 10", withCounts: true, expected: symspell.Entry{Word: "the", Frequency: 10}},
+		{name: "acronym-entry", line: "NASA", expected: symspell.Entry{Word: "NASA"}},
+	} {
+		table = append(table, Table{
+			Name: tc.name, ExpResp: tc.expected, CmpFunc: cmpDiff,
+			ExcFunc: func(context.Context) any {
+				e, err := parseEntry(tc.line, tc.withCounts)
+				if err != nil {
+					return err.Error()
+				}
+				return e
+			},
+		})
 	}
 	run(t, table, "dictionary-causes")
 }
@@ -122,13 +138,13 @@ func dictionary() []Table {
 	table := []Table{
 		{
 			Name:    "empty-list",
-			ExpResp: []plainEntry{},
+			ExpResp: []symspell.Entry{},
 			ExcFunc: func(context.Context) any { return parseDict(" \n\r\n") },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "CRLF-and-whitespace",
-			ExpResp: []plainEntry{{Word: "the", Count: 10}},
+			ExpResp: []symspell.Entry{{Word: "the", Frequency: 10}},
 			ExcFunc: func(context.Context) any { return parseDict("  the 10 \r\n\r\n") },
 			CmpFunc: cmpDiff,
 		},
@@ -140,19 +156,19 @@ func dictionary() []Table {
 		},
 		{
 			Name:    "entries",
-			ExpResp: []plainEntry{{Word: "the", Count: 10}, {Word: "don’t", Count: 5}},
+			ExpResp: []symspell.Entry{{Word: "the", Frequency: 10}, {Word: "don’t", Frequency: 5}},
 			ExcFunc: func(context.Context) any { return parseDict("the 10\ndon’t 5\n") },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "blank-lines-skipped",
-			ExpResp: []plainEntry{{Word: "the", Count: 10}, {Word: "ten", Count: 5}},
+			ExpResp: []symspell.Entry{{Word: "the", Frequency: 10}, {Word: "ten", Frequency: 5}},
 			ExcFunc: func(context.Context) any { return parseDict("the 10\n\nten 5\n") },
 			CmpFunc: cmpDiff,
 		},
 		{
-			Name:    "invalid-word",
-			ExpResp: `parse dictionary: line 1: parse word: invalid word "'the": unexpected '\''`,
+			Name:    "literal-word",
+			ExpResp: []symspell.Entry{{Word: "'the", Frequency: 10}},
 			ExcFunc: func(context.Context) any { return parseDict("'the 10\n") },
 			CmpFunc: cmpDiff,
 		},
@@ -233,8 +249,8 @@ func Test_ParseAcronyms(t *testing.T) {
 			CmpFunc: cmpDiff,
 		},
 		{
-			Name:    "invalid-word",
-			ExpResp: `parse acronyms: line 2: parse word: invalid word "DNS1": unexpected '1'`,
+			Name:    "acronym-with-digit",
+			ExpResp: map[string]struct{}{"JWT": {}, "DNS1": {}},
 			ExcFunc: func(context.Context) any { return acronymEntries("JWT\nDNS1\n") },
 			CmpFunc: cmpDiff,
 		},
@@ -250,18 +266,35 @@ func acronymEntries(text string) any {
 	return acronyms
 }
 
+// BenchmarkParseWordList measures startup parsing without building the index.
+func BenchmarkParseWordList(b *testing.B) {
+	for _, tc := range []struct {
+		name       string
+		text       string
+		withCounts bool
+	}{
+		{name: "dictionary-US", text: americanEnglish, withCounts: true},
+		{name: "dictionary-GB", text: britishEnglish, withCounts: true},
+		{name: "acronyms", text: knownAcronyms},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.SetBytes(int64(len(tc.text)))
+			for b.Loop() {
+				if _, err := parseWordList(tc.text, tc.withCounts); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 // =============================================================================
 
 // parseDict returns the entries parsed from text, or the error text.
 func parseDict(text string) any {
-	es, err := parseDictionary(text)
+	entries, err := parseDictionary(text)
 	if err != nil {
 		return err.Error()
-	}
-
-	entries := make([]plainEntry, len(es))
-	for i, e := range es {
-		entries[i] = plainEntry{Word: e.word.String(), Count: e.count}
 	}
 	return entries
 }

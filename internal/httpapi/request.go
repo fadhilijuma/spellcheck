@@ -2,13 +2,15 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-
-	"github.com/fadhilijuma/spellcheck/internal/spell"
+	"strings"
+	"unicode/utf8"
 )
+
+// maxBodyBytes caps each complete JSON request at 1 MiB, including whitespace.
+const maxBodyBytes = 1 << 20
 
 // checkRequest is the body of POST /v1/check.
 type checkRequest struct {
@@ -16,44 +18,32 @@ type checkRequest struct {
 	Language string   `json:"language"`
 }
 
-// decodeCheck reads exactly one size-bounded JSON object with no
-// unknown fields. Decoder errors retain their original cause with context.
-func decodeCheck(w http.ResponseWriter, r *http.Request, maxBodyBytes int64) (checkRequest, error) {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
-	dec.DisallowUnknownFields()
-
-	var req checkRequest
-	if err := dec.Decode(&req); err != nil {
-		return checkRequest{}, fmt.Errorf("decode request: %w", err)
+// decodeCheck reads one size-bounded JSON request, ignoring unknown fields.
+func decodeCheck(w http.ResponseWriter, r *http.Request) (checkRequest, error) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	if err != nil {
+		return checkRequest{}, fmt.Errorf("read request: %w", err)
 	}
 
-	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if err != nil {
-			return checkRequest{}, fmt.Errorf("decode trailing data: %w", err)
-		}
-		return checkRequest{}, errors.New("decode request: body must hold one JSON object")
+	var req checkRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return checkRequest{}, fmt.Errorf("decode request: %w", err)
 	}
 
 	return req, nil
 }
 
-// toWords validates the request and parses its words.
-func toWords(req checkRequest, maxWordLen, maxWords int) ([]spell.Word, error) {
-	switch {
-	case len(req.Words) == 0:
-		return nil, errors.New("words: at least 1 required")
-	case len(req.Words) > maxWords:
-		return nil, fmt.Errorf("words: max %d per request", maxWords)
+// validateCheck enforces request limits without restricting word syntax.
+func validateCheck(req checkRequest, maxWordLen, maxWords int) error {
+	if len(req.Words) > maxWords {
+		return fmt.Errorf("words: max %d per request", maxWords)
 	}
 
-	words := make([]spell.Word, 0, len(req.Words))
-	for i, s := range req.Words {
-		w, err := spell.ParseWord(s, maxWordLen)
-		if err != nil {
-			return nil, fmt.Errorf("words[%d]: %w", i, err)
+	for i, word := range req.Words {
+		if utf8.RuneCountInString(word) > maxWordLen && strings.TrimSpace(word) != "" {
+			return fmt.Errorf("words[%d]: max %d characters", i, maxWordLen)
 		}
-		words = append(words, w)
 	}
 
-	return words, nil
+	return nil
 }

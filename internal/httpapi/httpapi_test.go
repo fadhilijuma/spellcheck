@@ -20,6 +20,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+// requestBodyLimit is the fixed 1 MiB HTTP contract, not a constructor setting.
+const requestBodyLimit = 1 << 20
+
 // Table describes a unit test's execution and expected response.
 type Table struct {
 	Name    string
@@ -94,7 +97,7 @@ func Test_DefaultLanguage(t *testing.T) {
 	table := []Table{
 		{
 			Name:    "configuration",
-			ExpResp: response{Status: http.StatusOK, Body: `{"defaultLanguage":"en-GB","maxWordLen":64,"maxWords":500,"maxBodyBytes":385564}`},
+			ExpResp: response{Status: http.StatusOK, Body: `{"defaultLanguage":"en-GB","maxWordLen":64,"maxWords":500,"maxBodyBytes":1048576}`},
 			ExcFunc: func(ctx context.Context) any {
 				return serve(ctx, newServer(t, spell.EnglishGB), http.MethodGet, "/v1/config", "", nil)
 			},
@@ -132,7 +135,7 @@ func Test_WordLimit(t *testing.T) {
 	t.Parallel()
 	table := []Table{
 		{
-			Name: "configuration", ExpResp: response{Status: http.StatusOK, Body: `{"defaultLanguage":"en-US","maxWordLen":3,"maxWords":500,"maxBodyBytes":385564}`}, CmpFunc: cmpDiff,
+			Name: "configuration", ExpResp: response{Status: http.StatusOK, Body: `{"defaultLanguage":"en-US","maxWordLen":3,"maxWords":500,"maxBodyBytes":1048576}`}, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
 				return serve(ctx, newServer(t, spell.EnglishUS, 3), http.MethodGet, "/v1/config", "", nil)
 			},
@@ -142,7 +145,7 @@ func Test_WordLimit(t *testing.T) {
 			ExcFunc: func(ctx context.Context) any { return post(ctx, newServer(t, spell.EnglishUS, 3), `{"words":["the"]}`) },
 		},
 		{
-			Name: "over-limit", ExpResp: badRequestBody(`parse check words: words[0]: invalid word \"quick\": length must be 1 to 3`), CmpFunc: cmpDiff,
+			Name: "over-limit", ExpResp: badRequestBody(`check request limits: words[0]: max 3 characters`), CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
 				return post(ctx, newServer(t, spell.EnglishUS, 3), `{"words":["quick"]}`)
 			},
@@ -154,6 +157,18 @@ func Test_WordLimit(t *testing.T) {
 			},
 		},
 		{
+			Name: "Unicode-at-limit", ExpResp: http.StatusOK, CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				return post(ctx, newServer(t, spell.EnglishUS, 3), `{"words":["𐐀éa"]}`).Status
+			},
+		},
+		{
+			Name: "Unicode-over-limit", ExpResp: badRequestBody("check request limits: words[0]: max 3 characters"), CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				return post(ctx, newServer(t, spell.EnglishUS, 3), `{"words":["𐐀éab"]}`)
+			},
+		},
+		{
 			Name: "escaped-Unicode-full-batch", ExpResp: http.StatusOK, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
 				word := `"` + strings.Repeat(`\ud801\udc00`, 8) + `"`
@@ -162,9 +177,9 @@ func Test_WordLimit(t *testing.T) {
 			},
 		},
 		{
-			Name: "configured-body-limit", ExpResp: response{Status: http.StatusRequestEntityTooLarge, Body: `{"error":"request body is larger than 19564 bytes"}`}, CmpFunc: cmpDiff,
+			Name: "fixed-body-limit", ExpResp: response{Status: http.StatusRequestEntityTooLarge, Body: `{"error":"request body is larger than 1048576 bytes"}`}, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
-				return post(ctx, newServer(t, spell.EnglishUS, 3, 500, 19564), `{"words":["the"]}`+strings.Repeat(" ", 20000))
+				return post(ctx, newServer(t, spell.EnglishUS, 3), `{"words":["the"]}`+strings.Repeat(" ", requestBodyLimit))
 			},
 		},
 	}
@@ -176,27 +191,27 @@ func Test_RequestLimits(t *testing.T) {
 	body := `{"words":["the","ten"]}`
 	table := []Table{
 		{
-			Name: "configuration", ExpResp: response{Status: http.StatusOK, Body: `{"defaultLanguage":"en-US","maxWordLen":64,"maxWords":2,"maxBodyBytes":64}`}, CmpFunc: cmpDiff,
+			Name: "configuration", ExpResp: response{Status: http.StatusOK, Body: `{"defaultLanguage":"en-US","maxWordLen":64,"maxWords":2,"maxBodyBytes":1048576}`}, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
-				return serve(ctx, newServer(t, spell.EnglishUS, 64, 2, 64), http.MethodGet, "/v1/config", "", nil)
+				return serve(ctx, newServer(t, spell.EnglishUS, 64, 2), http.MethodGet, "/v1/config", "", nil)
 			},
 		},
 		{
 			Name: "at-count-and-byte-limit", ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[]}`}, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
-				return post(ctx, newServer(t, spell.EnglishUS, 64, 2, len(body)), body)
+				return post(ctx, newServer(t, spell.EnglishUS, 64, 2), body+strings.Repeat(" ", requestBodyLimit-len(body)))
 			},
 		},
 		{
-			Name: "over-count-limit", ExpResp: badRequestBody("parse check words: words: max 2 per request"), CmpFunc: cmpDiff,
+			Name: "over-count-limit", ExpResp: badRequestBody("check request limits: words: max 2 per request"), CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
-				return post(ctx, newServer(t, spell.EnglishUS, 64, 2, 64), `{"words":["the","ten","tea"]}`)
+				return post(ctx, newServer(t, spell.EnglishUS, 64, 2), `{"words":["the","ten","tea"]}`)
 			},
 		},
 		{
-			Name: "over-byte-limit", ExpResp: response{Status: http.StatusRequestEntityTooLarge, Body: fmt.Sprintf(`{"error":"request body is larger than %d bytes"}`, len(body))}, CmpFunc: cmpDiff,
+			Name: "over-byte-limit", ExpResp: response{Status: http.StatusRequestEntityTooLarge, Body: `{"error":"request body is larger than 1048576 bytes"}`}, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
-				return post(ctx, newServer(t, spell.EnglishUS, 64, 2, len(body)), body+" ")
+				return post(ctx, newServer(t, spell.EnglishUS, 64, 2), body+strings.Repeat(" ", requestBodyLimit-len(body)+1))
 			},
 		},
 	}
@@ -204,23 +219,20 @@ func Test_RequestLimits(t *testing.T) {
 		name           string
 		language       spell.Language
 		wordLen, words int
-		bytes          int64
 		err            string
 	}{
-		{name: "invalid-language", language: "fr-FR", wordLen: 64, words: 500, bytes: 385564, err: `default language: language "fr-FR": expected en-US or en-GB`},
-		{name: "zero-word-length", wordLen: 0, words: 500, bytes: 385564, err: "MaxWordLen:gt=0"},
-		{name: "negative-word-length", wordLen: -1, words: 500, bytes: 385564, err: "MaxWordLen:gt=0"},
-		{name: "zero-count", wordLen: 64, words: 0, bytes: 385564, err: "MaxWords:gt=0"},
-		{name: "negative-count", wordLen: 64, words: -1, bytes: 385564, err: "MaxWords:gt=0"},
-		{name: "zero-body", wordLen: 64, words: 500, bytes: 0, err: "MaxBodyBytes:gt=0"},
-		{name: "negative-body", wordLen: 64, words: 500, bytes: -1, err: "MaxBodyBytes:gt=0"},
-		{name: "all-zero-limits", err: "MaxWordLen:gt=0,MaxWords:gt=0,MaxBodyBytes:gt=0"},
-		{name: "minimum-positive-limits", wordLen: 1, words: 1, bytes: 1},
+		{name: "invalid-language", language: "fr-FR", wordLen: 64, words: 500, err: `default language: language "fr-FR": expected en-US or en-GB`},
+		{name: "zero-word-length", wordLen: 0, words: 500, err: "MaxWordLen:gt=0"},
+		{name: "negative-word-length", wordLen: -1, words: 500, err: "MaxWordLen:gt=0"},
+		{name: "zero-count", wordLen: 64, words: 0, err: "MaxWords:gt=0"},
+		{name: "negative-count", wordLen: 64, words: -1, err: "MaxWords:gt=0"},
+		{name: "all-zero-limits", err: "MaxWordLen:gt=0,MaxWords:gt=0"},
+		{name: "minimum-positive-limits", wordLen: 1, words: 1},
 	} {
 		table = append(table, Table{
 			Name: row.name, ExpResp: row.err, CmpFunc: cmpDiff,
 			ExcFunc: func(context.Context) any {
-				_, err := httpapi.New(slog.New(slog.DiscardHandler), row.language, "test", nil, row.wordLen, row.words, row.bytes, nil)
+				_, err := httpapi.New(slog.New(slog.DiscardHandler), row.language, "test", nil, row.wordLen, row.words, nil)
 				if failures, ok := errors.AsType[validator.ValidationErrors](err); ok {
 					fields := make([]string, 0, len(failures))
 					for _, failure := range failures {
@@ -298,6 +310,12 @@ func routing(srv http.Handler) []Table {
 func check200(srv http.Handler) []Table {
 	table := []Table{
 		{
+			Name:    "unknown-field-is-ignored",
+			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[]}`},
+			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["the"],"lang":"en"}`) },
+			CmpFunc: cmpDiff,
+		},
+		{
 			Name:    "American-language",
 			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[{"word":"colour","suggestions":["color"]}]}`},
 			ExcFunc: func(ctx context.Context) any {
@@ -357,6 +375,32 @@ func check200(srv http.Handler) []Table {
 		},
 	}
 
+	for _, body := range []string{
+		`{}`, `{"words":null}`, `{"words":[]}`, `{"words":[""]}`,
+		`{"words":[" ","\t\n","\u00a0\u2003"]}`,
+		`{"words":["` + strings.Repeat("\u2003", 80) + `"]}`,
+	} {
+		table = append(table, Table{
+			Name:    "empty-input-" + body,
+			ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[]}`},
+			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, body) },
+			CmpFunc: cmpDiff,
+		})
+	}
+	table = append(table, Table{
+		Name:    "blank-entries-do-not-affect-corrections",
+		ExpResp: response{Status: http.StatusOK, Body: `{"misspelled":[{"word":"Teh","suggestions":["The","Ten","Tea"]}]}`},
+		ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["","Teh"," ","quick"]}`) },
+		CmpFunc: cmpDiff,
+	})
+	for _, word := range []string{"two words", "abc1", "'word"} {
+		table = append(table, Table{
+			Name:    "literal-input-" + word,
+			ExpResp: response{Status: http.StatusOK, Body: fmt.Sprintf(`{"misspelled":[{"word":%q,"suggestions":[]}]}`, word)},
+			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, fmt.Sprintf(`{"words":[%q]}`, word)) },
+			CmpFunc: cmpDiff,
+		})
+	}
 	return table
 }
 
@@ -372,50 +416,38 @@ func check400(srv http.Handler) []Table {
 		},
 		{
 			Name:    "empty-body",
-			ExpResp: badRequestBody("decode check request: decode request: EOF"),
+			ExpResp: badRequestBody("decode check request: decode request: unexpected end of JSON input"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, ``) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "invalid-json",
-			ExpResp: badRequestBody("decode check request: decode request: unexpected EOF"),
+			ExpResp: badRequestBody("decode check request: decode request: unexpected end of JSON input"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":[`) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "trailing-data",
-			ExpResp: badRequestBody("decode check request: decode request: body must hold one JSON object"),
+			ExpResp: badRequestBody("decode check request: decode request: invalid character '{' after top-level value"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["the"]} {}`) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "malformed-trailing-data",
-			ExpResp: badRequestBody("decode check request: decode trailing data: unexpected EOF"),
+			ExpResp: badRequestBody("decode check request: decode request: invalid character '{' after top-level value"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["the"]} {`) },
 			CmpFunc: cmpDiff,
 		},
 		{
-			Name:    "unknown-field",
-			ExpResp: badRequestBody(`decode check request: decode request: json: unknown field \"lang\"`),
-			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["the"],"lang":"en"}`) },
-			CmpFunc: cmpDiff,
-		},
-		{
-			Name:    "no-words",
-			ExpResp: badRequestBody("parse check words: words: at least 1 required"),
-			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":[]}`) },
-			CmpFunc: cmpDiff,
-		},
-		{
 			Name:    "too-many-words",
-			ExpResp: badRequestBody("parse check words: words: max 500 per request"),
+			ExpResp: badRequestBody("check request limits: words: max 500 per request"),
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, tooMany) },
 			CmpFunc: cmpDiff,
 		},
 		{
-			Name:    "invalid-word",
-			ExpResp: badRequestBody(`parse check words: words[1]: invalid word \"abc1\": unexpected '1'`),
-			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":["the","abc1"]}`) },
+			Name:    "wrong-words-type",
+			ExpResp: badRequestBody(`decode check request: decode request: json: cannot unmarshal string into Go struct field checkRequest.words of type []string`),
+			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, `{"words":"two words"}`) },
 			CmpFunc: cmpDiff,
 		},
 	}
@@ -424,19 +456,19 @@ func check400(srv http.Handler) []Table {
 }
 
 func check413(srv http.Handler) []Table {
-	tooLarge := `{"words":["` + strings.Repeat("a", 400<<10) + `"]}`
-	trailingTooLarge := `{"words":["the"]}` + strings.Repeat(" ", 400<<10)
+	tooLarge := `{"words":["` + strings.Repeat("a", requestBodyLimit) + `"]}`
+	trailingTooLarge := `{"words":["the"]}` + strings.Repeat(" ", requestBodyLimit)
 
 	table := []Table{
 		{
 			Name:    "body",
-			ExpResp: response{Status: http.StatusRequestEntityTooLarge, Body: `{"error":"request body is larger than 385564 bytes"}`},
+			ExpResp: response{Status: http.StatusRequestEntityTooLarge, Body: `{"error":"request body is larger than 1048576 bytes"}`},
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, tooLarge) },
 			CmpFunc: cmpDiff,
 		},
 		{
 			Name:    "trailing-data",
-			ExpResp: response{Status: http.StatusRequestEntityTooLarge, Body: `{"error":"request body is larger than 385564 bytes"}`},
+			ExpResp: response{Status: http.StatusRequestEntityTooLarge, Body: `{"error":"request body is larger than 1048576 bytes"}`},
 			ExcFunc: func(ctx context.Context) any { return post(ctx, srv, trailingTooLarge) },
 			CmpFunc: cmpDiff,
 		},
@@ -497,7 +529,7 @@ func internalFailures() []Table {
 			Name:    "unconfigured checker is redacted",
 			ExpResp: response{Status: http.StatusInternalServerError, Body: `{"error":"internal server error"}`},
 			ExcFunc: func(ctx context.Context) any {
-				handler, err := httpapi.New(slog.New(slog.DiscardHandler), spell.EnglishUS, "test", nil, 64, 500, 385564, nil)
+				handler, err := httpapi.New(slog.New(slog.DiscardHandler), spell.EnglishUS, "test", nil, 64, 500, nil)
 				if err != nil {
 					return err.Error()
 				}
@@ -510,7 +542,7 @@ func internalFailures() []Table {
 			ExpResp: requestLog{Level: "ERROR", Message: "request", Status: http.StatusInternalServerError, Error: "checker for en-US is not configured", Records: 1},
 			ExcFunc: func(ctx context.Context) any {
 				var output bytes.Buffer
-				handler, err := httpapi.New(slog.New(slog.NewJSONHandler(&output, nil)), spell.EnglishUS, "test", nil, 64, 500, 385564, nil)
+				handler, err := httpapi.New(slog.New(slog.NewJSONHandler(&output, nil)), spell.EnglishUS, "test", nil, 64, 500, nil)
 				if err != nil {
 					return err.Error()
 				}
@@ -570,15 +602,12 @@ func newServer(t *testing.T, defaultLanguage spell.Language, limits ...int) http
 	t.Helper()
 
 	maxWordLen := 64
-	maxWords, maxBodyBytes := 500, 385564
+	maxWords := 500
 	if len(limits) > 0 {
 		maxWordLen = limits[0]
 	}
 	if len(limits) > 1 {
 		maxWords = limits[1]
-	}
-	if len(limits) > 2 {
-		maxBodyBytes = limits[2]
 	}
 	cfg := spell.Config{MaxSuggestions: 5, MaxDistance: 2, PrefixLength: 7}
 	checker, err := spell.New(seedDict, cfg)
@@ -597,7 +626,6 @@ func newServer(t *testing.T, defaultLanguage spell.Language, limits ...int) http
 		[]string{editorOrigin},
 		maxWordLen,
 		maxWords,
-		int64(maxBodyBytes),
 		map[spell.Language]*spell.Checker{spell.EnglishUS: checker, spell.EnglishGB: british},
 	)
 	if err != nil {

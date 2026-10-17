@@ -16,7 +16,7 @@ Start API Service, Shutdown. Use ardanlabs/conf/v3 with the existing anonymous
 config and conf.Version. Keep user-facing defaults there and pass values down.
 Use stage separators only in main.go. Do not add a debug service.
 
-Use internal/spell for Word, Language, Checker and spelling-list parsing. Embed
+Use internal/spell for string lookups, Language, Checker and spelling-list parsing. Embed
 US/British lists and the shared acronym allowlist directly. Build one SymSpell
 index per language at startup, then reuse read-only checkers on requests. Reuse
 eskriett/spell; do not implement edit distance or scan the whole dictionary.

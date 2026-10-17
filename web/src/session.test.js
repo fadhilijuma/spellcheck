@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSession } from './session.js';
 
-const limits = { maxWordLen: 64, maxWords: 500, maxBodyBytes: 385564 };
+const limits = { maxWordLen: 64, maxWords: 500, maxBodyBytes: 1 << 20 };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function setup(t, fetcher) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -15,7 +15,7 @@ for (const row of [
   { name: 'word count', maxWords: 1, maxBodyBytes: 100, batches: [['one'], ['two']] },
   { name: 'body bytes', maxWords: 500, maxBodyBytes: 17, batches: [['one'], ['two']] },
 ]) {
-  test(`session forwards configured ${row.name}`, async t => {
+  test(`session forwards server ${row.name} limit`, async t => {
     const batches = [];
     const { states, session } = setup(t, async (_url, options) => {
       assert.ok(Buffer.byteLength(options.body) <= row.maxBodyBytes);

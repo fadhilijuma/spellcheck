@@ -1,7 +1,7 @@
 Implement the spelling behavior I specify within the existing package boundaries.
 
 Read AGENTS.md, README.md and prompts/project-structure.md. Inspect spell.go,
-word.go, dict.go and relevant HTTP/editor callers before deciding where the
+dict.go and relevant HTTP/editor callers before deciding where the
 change belongs. State the rule and why its owning package is right. Extend
 internal/spell for spelling rules, internal/httpapi for transport behavior, or
 web/src for writing interactions. Do not create a new domain or service scaffold.
@@ -9,10 +9,6 @@ web/src for writing interactions. Do not create a new domain or service scaffold
 Preserve these models unless the requested behavior needs an explained contract
 change. Read actual declarations and comments; these shapes are reference
 material, not instructions to duplicate types.
-
-type Word struct {
-    value string
-}
 
 type Language string
 
@@ -23,14 +19,14 @@ type Config struct {
 }
 
 type Result struct {
-    Word        Word
+    Word        string
     Valid       bool
-    Suggestions []Word
+    Suggestions []string
 }
 
-Use ParseWord at the request boundary and ParseLanguage for language values.
-Resolve an omitted request language to the configured default. Reject a zero
-Word where needed; do not repeat syntax/length validation after parsing. Index
+Pass []string directly to Check and use ParseLanguage for language values.
+Resolve an omitted request language to the configured default. HTTP enforces
+input length, batch size and body size; do not add word-syntax restrictions. Index
 settings are validated at construction; never rebuild or mutate a live checker.
 Keep NewEnglish and New returning *Checker and Check returning []Result, error.
 Do not replace domain values with arbitrary maps, callback iterators or any.

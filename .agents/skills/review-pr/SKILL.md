@@ -56,7 +56,7 @@ Go is the primary codebase, not the only one.
 | Area | Where | Lens focus |
 |---|---|---|
 | Startup | `cmd/spellcheck` | Configuration, concrete dependency wiring, startup failures and shutdown. No spelling or HTTP business logic. |
-| Spelling | `internal/spell` | Word validation, dictionary parsing, SymSpell lookup, deterministic ranking, case preservation and cancellation. No HTTP, JSON or logging. |
+| Spelling | `internal/spell` | String inputs, dictionary parsing, SymSpell lookup, deterministic ranking, case preservation and cancellation. No HTTP, JSON or logging. |
 | HTTP API | `internal/httpapi` | Routing, request limits, JSON decoding, error/status responses, middleware and context propagation. No duplicated spelling rules. |
 | Editor | `web/src` (`.vue`, `.js`, `.css`) | Vue contracts, debounce/cancellation, stale results, Unicode offsets, inline corrections, caret/Undo, accessibility and cleanup. |
 | Tests | Adjacent Go/JS tests and `web/tests` | Table-driven behavior coverage and real API/browser interaction regressions. |
@@ -108,7 +108,7 @@ For explicit file reviews without a diff, route by the code and contracts in sco
   plus logging and fallback/default
   behavior: Error Tripwire.
 - **Any contract or shape changed** — Go structs/interfaces/constructors,
-  HTTP request/response shapes, word validation, suggestion results, Unicode
+  HTTP request/response shapes, request limits, suggestion results, Unicode
   offsets or Vue `props`/`emits`: Boundary Keeper.
 - **Comments, doc strings (Go doc, JSDoc), examples, README snippets, or
   TODO/FIXME changed:** Doc Drift Check.

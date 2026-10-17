@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkDocument as checkWithConfiguration, getConfiguration } from './api.js';
 
-const limits = { maxWordLen: 64, maxWords: 500, maxBodyBytes: 385564 };
+const limits = { maxWordLen: 64, maxWords: 500, maxBodyBytes: 1 << 20 };
 const checkDocument = (text, options) => checkWithConfiguration(text, { ...limits, ...options });
 
 test('deduplicates words and forwards the abort signal', async () => {

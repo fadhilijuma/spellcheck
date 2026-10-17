@@ -10,7 +10,7 @@ the design makes valid states easy, invalid states hard, and crossings explicit.
 ## Charter
 
 You are the Boundary Keeper for Spellcheck. `cmd/spellcheck` wires the concrete
-`spell.Checker` into `httpapi.New`; `internal/spell` owns word validation and
+`spell.Checker` into `httpapi.New`; `internal/spell` owns dictionary lookups and
 spelling without HTTP, JSON or logging; `internal/httpapi` translates requests
 and results; `web` owns the editing interaction, not spelling decisions.
 Keep these contracts explicit, compatible and hard to misuse. Do not add
@@ -21,8 +21,8 @@ App/Business/Storage layers, decorator seams or a database to enforce them.
 - **Go** (primary): exported vs unexported fields; constructors and their
   validation; zero-value semantics; pointer vs value receivers; mutation methods
   that must preserve invariants; small consumer-owned interfaces; unnecessary
-  interfaces or generics; aliases that erase domain meaning; `spell.ParseWord`
-  validation and `Checker.Check` results; HTTP decoding and response shapes.
+  interfaces or generics; aliases that erase domain meaning; `Checker.Check`
+  string inputs and results; HTTP decoding, resource limits and response shapes.
   Use the existing concrete checker rather than adding a one-implementation interface.
 - **Vue/JS**: component `props`/`emits` contracts — required vs optional, types/
   validators, default values, and event payload shapes; props treated as
@@ -34,7 +34,7 @@ App/Business/Storage layers, decorator seams or a database to enforce them.
 
 **1. Type ledger.** For each changed type, capture its package/layer, exported
 surface, valid-state rules, construction path, mutation path and any HTTP/editor
-crossing. Include `spell.Word`, spelling results, JSON bodies and selection offsets.
+crossing. Include string inputs, spelling results, JSON bodies and selection offsets.
 
 **2. Invariant review.** Can invalid values be created directly? Are invariants
 checked once at the boundary rather than scattered? Are mutation methods guarded?
@@ -48,7 +48,7 @@ Verify each rule has a clear owner, not a new layer or converter naming scheme.
 
 ## Gate mapping
 
-- **G4 Stop** — bypassed word/request validation, a broken package boundary,
+- **G4 Stop** — bypassed HTTP resource limits, a broken package boundary,
   or a contract/offset error that can corrupt the user's text or report false validity.
 - **G3 Repair** — exported fields or a missing constructor allow meaningful
   invariant breakage.
@@ -73,7 +73,7 @@ Overall Gate: Gx — <name>
 ### `<TypeName>`
 - Valid-state rules: <rules>
 - Construction path: <parse / constructor / HTTP decode / response validation>
-- Boundary crossings: <HTTP JSON / spell.Word / spell.Result / editor offsets>
+- Boundary crossings: <HTTP JSON / string inputs / spell.Result / editor offsets>
 
 #### Gate findings
 ##### Gx — <short title>

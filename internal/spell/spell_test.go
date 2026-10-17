@@ -3,9 +3,11 @@ package spell
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -32,26 +34,46 @@ func Test_Config(t *testing.T) {
 	const dictionary = "cat 5\ncar 9\ncap 9\ncan 1\ncab 3\ncad 2\ncaw 4\n"
 	table := []Table{
 		{
-			Name: "zero-word", ExpResp: `check word: word is empty`, CmpFunc: cmpDiff,
+			Name: "empty-input", ExpResp: []result{}, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
-				checker, err := New(dictionary, testConfig)
-				if err == nil {
-					_, err = checker.Check(ctx, []Word{{}})
-				}
-				if err != nil {
-					return err.Error()
-				}
-				return ""
+				return checkConfigured(ctx, testConfig, dictionary, "")
 			},
 		},
 		{
-			Name: "parser-enforces-word-limit", ExpResp: `invalid word "cats": length must be 1 to 3`, CmpFunc: cmpDiff,
+			Name: "no-input", ExpResp: []result{}, CmpFunc: cmpDiff,
 			ExcFunc: func(ctx context.Context) any {
-				_, err := ParseWord("cats", 3)
-				if err != nil {
-					return err.Error()
-				}
-				return ""
+				return checkConfigured(ctx, testConfig, dictionary)
+			},
+		},
+		{
+			Name: "whitespace-is-not-a-word", ExpResp: []result{}, CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, testConfig, dictionary, " ", "\t\n", "\u00a0\u2003")
+			},
+		},
+		{
+			Name: "blank-entries-preserve-word-order", ExpResp: []result{
+				{Word: "cax", Suggestions: []string{"cap", "car", "cat", "caw", "cab"}},
+				{Word: "cat", Valid: true},
+			}, CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, testConfig, dictionary, "", "cax", " ", "cat", "\t")
+			},
+		},
+		{
+			Name: "no-parser-length-limit", ExpResp: []result{{Word: strings.Repeat("z", 65)}}, CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				return checkConfigured(ctx, testConfig, dictionary, strings.Repeat("z", 65))
+			},
+		},
+		{
+			Name: "literal-inputs", ExpResp: []result{
+				{Word: "two words"},
+				{Word: "abc1", Suggestions: []string{"abc", "abcs"}},
+				{Word: "'word", Suggestions: []string{"word"}},
+			}, CmpFunc: cmpDiff,
+			ExcFunc: func(ctx context.Context) any {
+				return checkIn(ctx, "word 10\nabc 5\nabcs 4\n", "two words", "abc1", "'word")
 			},
 		},
 		{
@@ -114,38 +136,33 @@ func Test_Config(t *testing.T) {
 			},
 			CmpFunc: cmpDiff,
 		},
-		{
-			Name:    "zero-suggestion-limit",
-			ExpResp: "max suggestions: must be positive",
-			ExcFunc: func(ctx context.Context) any {
-				return checkConfigured(ctx, Config{MaxSuggestions: 0, MaxDistance: 2, PrefixLength: 7}, dictionary, "cat")
+	}
+	for _, tc := range []struct {
+		name    string
+		config  Config
+		failure string
+	}{
+		{name: "zero-suggestion-limit", config: Config{MaxDistance: 2, PrefixLength: 7}, failure: "MaxSuggestions:gt=0"},
+		{name: "negative-suggestion-limit", config: Config{MaxSuggestions: -1, MaxDistance: 2, PrefixLength: 7}, failure: "MaxSuggestions:gt=0"},
+		{name: "prefix-equals-distance", config: Config{MaxSuggestions: 5, MaxDistance: 2, PrefixLength: 2}, failure: "PrefixLength:gtfield=MaxDistance"},
+		{name: "zero-prefix", config: Config{MaxSuggestions: 5}, failure: "PrefixLength:gtfield=MaxDistance"},
+		{name: "zero-config", failure: "MaxSuggestions:gt=0,PrefixLength:gtfield=MaxDistance"},
+	} {
+		table = append(table, Table{
+			Name: tc.name, ExpResp: tc.failure, CmpFunc: cmpDiff,
+			ExcFunc: func(context.Context) any {
+				_, err := New(dictionary, tc.config)
+				failures, ok := errors.AsType[validator.ValidationErrors](err)
+				if !ok {
+					return err
+				}
+				fields := make([]string, 0, len(failures))
+				for _, failure := range failures {
+					fields = append(fields, failure.Field()+":"+failure.Tag()+"="+failure.Param())
+				}
+				return strings.Join(fields, ",")
 			},
-			CmpFunc: cmpDiff,
-		},
-		{
-			Name:    "negative-suggestion-limit",
-			ExpResp: "max suggestions: must be positive",
-			ExcFunc: func(ctx context.Context) any {
-				return checkConfigured(ctx, Config{MaxSuggestions: -1, MaxDistance: 2, PrefixLength: 7}, dictionary, "cat")
-			},
-			CmpFunc: cmpDiff,
-		},
-		{
-			Name:    "prefix-equals-distance",
-			ExpResp: "prefix length: must be greater than max distance",
-			ExcFunc: func(ctx context.Context) any {
-				return checkConfigured(ctx, Config{MaxSuggestions: 5, MaxDistance: 2, PrefixLength: 2}, dictionary, "cat")
-			},
-			CmpFunc: cmpDiff,
-		},
-		{
-			Name:    "zero-prefix",
-			ExpResp: "prefix length: must be greater than max distance",
-			ExcFunc: func(ctx context.Context) any {
-				return checkConfigured(ctx, Config{MaxSuggestions: 5, MaxDistance: 0, PrefixLength: 0}, dictionary, "cat")
-			},
-			CmpFunc: cmpDiff,
-		},
+		})
 	}
 	run(t, table, "config")
 }
@@ -154,17 +171,6 @@ func Test_EnglishConfig(t *testing.T) {
 	t.Parallel()
 
 	table := []Table{
-		{
-			Name: "loads-both-dictionaries-and-acronyms", ExpResp: true, CmpFunc: cmpDiff,
-			ExcFunc: func(context.Context) any {
-				for _, language := range []Language{EnglishUS, EnglishGB} {
-					if _, err := NewEnglish(language, testConfig); err != nil {
-						return err.Error()
-					}
-				}
-				return true
-			},
-		},
 		{
 			Name: "unsupported-language-context", ExpResp: `parse language: language "fr-FR": expected en-US or en-GB`, CmpFunc: cmpDiff,
 			ExcFunc: func(context.Context) any {
@@ -505,7 +511,7 @@ func checkCancel(c *Checker) []Table {
 			ExcFunc: func(ctx context.Context) any {
 				ctx, cancel := context.WithCancel(ctx)
 				cancel()
-				_, err := c.Check(ctx, []Word{{value: "teh"}})
+				_, err := c.Check(ctx, []string{"teh"})
 				return errors.Is(err, context.Canceled)
 			},
 		},
@@ -514,7 +520,7 @@ func checkCancel(c *Checker) []Table {
 			ExcFunc: func(ctx context.Context) any {
 				ctx, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
 				defer cancel()
-				_, err := c.Check(ctx, []Word{{value: "teh"}})
+				_, err := c.Check(ctx, []string{"teh"})
 				return errors.Is(err, context.DeadlineExceeded)
 			},
 		},
@@ -536,17 +542,13 @@ func BenchmarkCheck(b *testing.B) {
 		{name: "valid-word", word: "accommodation"},
 		{name: "distance-1", word: "acommodation"},
 		{name: "distance-2", word: "acommodatoin"},
+		{name: "uppercase-typo", word: "TEH"},
 	}
 
 	for _, tt := range tests {
-		w, err := ParseWord(tt.word, 64)
-		if err != nil {
-			b.Fatalf("Should be able to parse %q : %s", tt.word, err)
-		}
-
 		b.Run(tt.name, func(b *testing.B) {
 			for b.Loop() {
-				if _, err := c.Check(b.Context(), []Word{w}); err != nil {
+				if _, err := c.Check(b.Context(), []string{tt.word}); err != nil {
 					b.Fatalf("Should be able to check : %s", err)
 				}
 			}
@@ -604,29 +606,16 @@ func checkConfigured(ctx context.Context, cfg Config, dict string, words ...stri
 	return checkWords(ctx, c, words...)
 }
 
-// checkWords parses and checks words; it returns the results, or the error
-// text.
+// checkWords checks strings and returns comparable results, or the error text.
 func checkWords(ctx context.Context, c *Checker, words ...string) any {
-	parsed := make([]Word, len(words))
-	for i, s := range words {
-		w, err := ParseWord(s, 64)
-		if err != nil {
-			return err.Error()
-		}
-		parsed[i] = w
-	}
-
-	rs, err := c.Check(ctx, parsed)
+	rs, err := c.Check(ctx, words)
 	if err != nil {
 		return err.Error()
 	}
 
 	results := make([]result, len(rs))
 	for i, r := range rs {
-		results[i] = result{Word: r.Word.String(), Valid: r.Valid}
-		for _, s := range r.Suggestions {
-			results[i].Suggestions = append(results[i].Suggestions, s.String())
-		}
+		results[i] = result{Word: r.Word, Valid: r.Valid, Suggestions: append([]string(nil), r.Suggestions...)}
 	}
 	return results
 }

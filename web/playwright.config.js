@@ -19,7 +19,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `go run ./cmd/spellcheck --web-api-host=127.0.0.1:3015 --max-word-len=${process.env.SPELL_MAX_WORD_LEN || 80} --max-words=${process.env.SPELL_MAX_WORDS || 3} --max-body-bytes=${process.env.SPELL_MAX_BODY_BYTES || 512}`,
+      command: `go run ./cmd/spellcheck --web-api-host=127.0.0.1:3015 --max-word-len=${process.env.SPELL_MAX_WORD_LEN || 80} --max-words=${process.env.SPELL_MAX_WORDS || 3}`,
       cwd: '..',
       url: 'http://127.0.0.1:3015/v1/readiness',
       timeout: 120000,
